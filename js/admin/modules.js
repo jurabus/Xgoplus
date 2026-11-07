@@ -1,5 +1,5 @@
-// Switch app modules on/off remotely (settings.app_disabled_modules).
-// Keep this list in sync with src/modules/registry.ts (core modules can't be disabled).
+// Switch website modules on/off remotely (settings.app_disabled_modules).
+// Core modules can't be disabled.
 import { sb, h, errMsg, busy, toast, bustSettingsCache } from '../common.js';
 
 export const MODULES = [
@@ -31,5 +31,5 @@ export async function render(root) {
     if (e) { toast(errMsg(e), 'bad'); return; }
     row.data.app_disabled_modules = off; bustSettingsCache(); toast('Saved');
   });
-  root.append(h('h1', { text: 'Modules' }), h('p', { class: 'muted small', text: 'Turned-off modules disappear from the app and website after the next refresh.' }), card, h('div', { class: 'stack' }, h('div'), save));
+  root.append(h('h1', { text: 'Modules' }), h('p', { class: 'muted small', text: 'Turned-off modules disappear from the website within a few minutes.' }), card, h('div', { class: 'stack' }, h('div'), save));
 }

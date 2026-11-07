@@ -8,7 +8,9 @@ Members discount platform — https://xgoplus.online
 - **Providers** (created only by admin) log in with username + password at `/partner.html`, edit their
   image/name/discount/notes, and scan customer QR codes to see *active + discount* or *expired*.
 - **Admin** (`/admin.html`, email + password, listed in `admins` table, 20-min idle logout) manages
-  providers, members, banners, every text, scan log and module switches.
+  providers, members, banners, every text, scan log and module switches (`app_disabled_modules`).
+
+Web app only (no native iOS/Android app).
 
 ## Layout
 
@@ -22,7 +24,6 @@ Members discount platform — https://xgoplus.online
 | `js/config.js` | Supabase URL + publishable key only |
 | `shared/settings-defaults.json` | Default texts for site + app (regenerate `js/defaults.js` with `tools/gen-defaults.sh`) |
 | `supabase/schema.sql`, `supabase/migrations/0NN_*.sql` | Database (run in order in SQL Editor; idempotent) |
-| `src/` | Expo app (core + plug-and-play modules) |
 | `tests/db/` | Role-by-role database tests on local Postgres |
 | `tests/e2e/` | Real browser tests against local GoTrue + PostgREST + migrations |
 

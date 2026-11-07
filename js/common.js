@@ -219,14 +219,18 @@ export function busy(btn, on, label) {
 }
 
 // ---------- page shell ----------
+export function moduleOn(id) {
+  const off = S('app_disabled_modules');
+  return !(Array.isArray(off) && off.includes(id));
+}
 function navFor(ctx) {
   const role = ctx.role;
   if (role === 'provider') {
     return [
-      { href: 'partner.html#scan', key: 'scan', label: S('scan_title').split(' ')[0] || 'Scan', icon: 'scan' },
-      { href: 'partner.html#profile', key: 'profile', label: S('partner_profile_title'), icon: 'store' },
+      moduleOn('scanner') && { href: 'partner.html#scan', key: 'scan', label: S('scan_title').split(' ')[0] || 'Scan', icon: 'scan' },
+      moduleOn('provider-profile') && { href: 'partner.html#profile', key: 'profile', label: S('partner_profile_title'), icon: 'store' },
       { href: 'partner.html#history', key: 'history', label: S('partner_history_title'), icon: 'clock' },
-    ];
+    ].filter(Boolean);
   }
   const off = new Set(Array.isArray(S('app_disabled_modules')) ? S('app_disabled_modules') : []);
   const items = [{ href: 'index.html', key: 'home', label: S('nav_home'), icon: 'home' }];
