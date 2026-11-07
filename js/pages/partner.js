@@ -1,6 +1,6 @@
 import {
   sb, shell, S, h, $, clear, icon, errMsg, busy, toast, providerEmail, getContext, mediaUrl,
-  uploadImage, pct, fmtDate, fmtDateTime, initialOf, logout, moduleOn,
+  uploadImage, pct, fmtDate, fmtDateTime, initialOf, logout, moduleOn, limitsEditor, passwordForm, rulesText, usageText,
 } from '../common.js';
 
 const app = $('#app');
@@ -77,12 +77,21 @@ export async function verify(token) {
   const again = h('button', { class: 'btn block', type: 'button', text: S('scan_again'), onclick: () => scanView() });
   if (error) { clear(app).append(h('div', { class: 'result warn' }, h('h2', { text: errMsg(error) })), h('div', { class: 'stack' }, again)); return; }
   let box;
+  const usage = data.usage ? usageText(data.usage) : '';
   if (data.status === 'active') {
     box = h('div', { class: 'result ok' }, icon('check', 'icon'), h('h2', { text: S('scan_active') }),
       h('div', { text: S('scan_discount_label') }), h('div', { class: 'big', text: `${pct(data.discount_percent)}%` }),
       h('div', {}, h('b', { text: data.member_name })),
+      data.repeat ? h('div', { class: 'badge warn', text: S('scan_repeat') }) : null,
       h('div', { class: 'small', text: `${S('membership_valid_until')}: ${fmtDate(data.expires_at)}` }),
+      data.usage?.limit_count ? h('div', { class: 'small', text: usage }) : null,
       data.notes ? h('div', { class: 'notes small', text: data.notes }) : null);
+  } else if (data.status === 'limit_reached' || data.status === 'not_today') {
+    box = h('div', { class: 'result bad' }, icon('x', 'icon'),
+      h('h2', { text: data.status === 'limit_reached' ? S('scan_limit_reached') : S('scan_not_today') }),
+      h('div', {}, h('b', { text: data.member_name })),
+      h('div', { class: 'small', text: rulesText(data.usage || {}).join(' · ') }),
+      data.status === 'limit_reached' && usage ? h('div', { class: 'small', text: usage }) : null);
   } else if (data.status === 'expired') {
     box = h('div', { class: 'result bad' }, icon('x', 'icon'), h('h2', { text: S('scan_expired') }),
       h('div', {}, h('b', { text: data.member_name })),
@@ -94,9 +103,11 @@ export async function verify(token) {
 }
 
 // ---------------- profile ----------------
-function profileView() {
+async function profileView() {
   stopCamera();
-  const p = ctx.provider;
+  clear(app).append(h('div', { class: 'spinner' }));
+  const { data: lim } = await sb.from('providers').select('limit_count,limit_period,allowed_days').eq('id', ctx.provider.id).maybeSingle();
+  const p = { ...ctx.provider, ...(lim || {}) };
   let imagePath = p.image_path;
   const preview = imagePath ? h('img', { class: 'preview', src: mediaUrl(imagePath), alt: '' }) : h('div', { class: 'preview thumb', text: initialOf(p.name) });
   const file = h('input', { type: 'file', accept: 'image/*', hidden: true });
@@ -104,6 +115,7 @@ function profileView() {
   const name = h('input', { class: 'input', value: p.name, maxlength: 80, required: true });
   const disc = h('input', { class: 'input', type: 'number', inputmode: 'decimal', min: 0.01, max: 100, step: 0.01, value: pct(p.discount_percent), required: true });
   const notes = h('textarea', { class: 'input', maxlength: 1000, rows: 4 }); notes.value = p.notes || '';
+  const limits = limitsEditor(p);
   const save = h('button', { class: 'btn block', type: 'submit', text: 'Save' });
   file.addEventListener('change', async () => {
     const f = file.files[0]; if (!f) return;
@@ -125,7 +137,8 @@ function profileView() {
     h('div', { class: 'img-pick' }, preview, pick, file),
     h('label', { class: 'field' }, h('span', { text: 'Business name' }), name),
     h('label', { class: 'field' }, h('span', { text: 'Discount %' }), disc),
-    h('label', { class: 'field' }, h('span', { text: S('provider_notes_title') }), notes, h('small', { class: 'muted', text: 'e.g. Offer valid on Fridays only' })),
+    h('label', { class: 'field' }, h('span', { text: S('provider_notes_title') }), notes, h('small', { class: 'muted', text: 'Extra info for customers. Day/usage limits go below.' })),
+    h('div', { class: 'card-sub stack' }, h('b', { text: S('partner_limits_title') }), limits.el),
     save);
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -133,7 +146,7 @@ function profileView() {
     if (!name.value.trim()) { toast('Enter the business name.', 'bad'); return; }
     if (!(d > 0 && d <= 100)) { toast('Discount must be between 0.01 and 100.', 'bad'); return; }
     busy(save, true);
-    const { error } = await sb.from('providers').update({ name: name.value.trim(), discount_percent: d, notes: notes.value.trim() }).eq('id', p.id);
+    const { error } = await sb.from('providers').update({ name: name.value.trim(), discount_percent: d, notes: notes.value.trim(), ...limits.value() }).eq('id', p.id);
     busy(save, false);
     if (error) { toast(errMsg(error), 'bad'); return; }
     toast('Saved');
@@ -142,7 +155,7 @@ function profileView() {
   const out = h('button', { class: 'btn block danger', type: 'button', text: 'Log out', onclick: () => logout('partner.html') });
   clear(app).append(h('h1', { text: S('partner_profile_title') }),
     h('p', { class: 'muted small' }, 'Username: ', h('b', { text: p.username }), ' · ', h('a', { href: `provider.html?id=${p.id}`, text: 'View public page' })),
-    form, h('div', { class: 'stack' }, h('div'), out));
+    form, h('div', { class: 'stack' }, h('div'), passwordForm(), out));
 }
 
 // ---------------- history ----------------
@@ -152,7 +165,7 @@ async function historyView() {
   const more = h('div', { class: 'more' });
   clear(app).append(h('h1', { text: S('partner_history_title') }), list, more);
   let offset = 0;
-  const LABEL = { active: ['ok', S('membership_active_label')], expired: ['bad', S('membership_expired_label')], invalid: ['warn', S('scan_invalid')], stale: ['warn', S('scan_invalid')] };
+  const LABEL = { active: ['ok', S('membership_active_label')], expired: ['bad', S('membership_expired_label')], invalid: ['warn', S('scan_invalid')], stale: ['warn', S('scan_invalid')], limit_reached: ['bad', S('scan_limit_reached')], not_today: ['bad', S('scan_not_today')] };
   async function load() {
     clear(more).append(h('div', { class: 'spinner' }));
     const { data, error } = await sb.from('scans').select('id,member_label,result,discount_percent,created_at')

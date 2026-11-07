@@ -1,4 +1,4 @@
-import { sb, shell, S, h, $, clear, mediaUrl, param, loadCategories, categoryChips, infiniteGrid } from '../common.js';
+import { sb, shell, S, h, $, clear, mediaUrl, param, loadCategories, categoryChips, infiniteGrid, discountSelect } from '../common.js';
 
 const PAGE = 24;
 const app = $('#app');
@@ -16,17 +16,25 @@ async function banners() {
   }));
 }
 
+function setParam(k, v) {
+  const u = new URL(location.href);
+  if (v) u.searchParams.set(k, v); else u.searchParams.delete(k);
+  history.replaceState(null, '', u);
+}
+
 async function main() {
   await shell('home');
   clear(app);
   let cat = param('cat') || '';
+  let minDisc = Number(param('min')) || null;
   const grid = h('div', { class: 'grid', id: 'grid' });
   const more = h('div', { class: 'more' });
   const chipsSlot = h('div', { class: 'chips-slot' });
   app.append(
     h('div', { id: 'banners' }),
     h('h1', { text: S('home_heading') }),
-    h('p', { class: 'muted', text: S('tagline') }),
+    h('div', { class: 'row filters' }, h('p', { class: 'muted grow', text: S('tagline') }),
+      discountSelect(minDisc, (v) => { minDisc = v; setParam('min', v); list.reset(); })),
     chipsSlot, grid, more);
   banners().then((b) => b && $('#banners').append(b)).catch(() => {});
 
@@ -34,19 +42,18 @@ async function main() {
     let q = sb.from('providers').select('id,name,image_path,discount_percent')
       .eq('is_active', true).order('sort_order').order('name').order('id').range(offset, offset + PAGE - 1);
     if (cat) q = q.eq('category_id', cat);
+    if (minDisc) q = q.gte('discount_percent', minDisc);
     const { data, error } = await q;
     if (error) throw error;
     return data;
-  }, PAGE, () => (cat ? S('category_empty') : S('home_empty')));
+  }, PAGE, () => (cat || minDisc ? S('category_empty') : S('home_empty')));
 
   loadCategories().then((cats) => {
     if (!cats.length) return;
     if (cat && !cats.some((c) => c.id === cat)) { cat = ''; list.reset(); }
     chipsSlot.append(categoryChips(cats, cat, (id) => {
       cat = id;
-      const u = new URL(location.href);
-      if (id) u.searchParams.set('cat', id); else u.searchParams.delete('cat');
-      history.replaceState(null, '', u);
+      setParam('cat', id);
       list.reset();
     }));
   });

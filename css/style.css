@@ -254,3 +254,33 @@ main { overflow-wrap: anywhere; }
 .chip { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 6px; min-height: 40px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--line); background: #fff; color: var(--ink); font-weight: 600; cursor: pointer; scroll-snap-align: start; }
 .chip.active { background: var(--ink); color: #fff; border-color: var(--ink); }
 .chip-ic { font-size: 17px; line-height: 1; }
+
+/* ---------- filters ---------- */
+.filters { align-items: center; margin-bottom: 6px; }
+.filters p { margin: 0; }
+select.input.discount-sel { width: auto; max-width: 46%; min-height: 40px; padding: 6px 30px 6px 12px; border-radius: 999px; font-size: 14px; font-weight: 600; flex: 0 0 auto; }
+
+/* ---------- usage rules ---------- */
+.rules { background: var(--brand-soft); border-radius: 12px; padding: 12px 14px; color: #2c1680; }
+.rules-title { display: flex; align-items: center; gap: 8px; }
+.rules-title svg { width: 18px; height: 18px; }
+.rules ul { margin: 6px 0 0; padding-left: 22px; }
+.badge.usage { display: block; text-align: center; padding: 8px 12px; border-radius: 10px; font-size: 13px; }
+.days { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+.daybtn { flex: 1 0 40px; min-height: 40px; border-radius: 10px; border: 1px solid var(--line); background: #fff; font-weight: 700; color: var(--muted); cursor: pointer; }
+.daybtn.on { background: var(--brand); border-color: var(--brand); color: #fff; }
+.card-sub { border: 1px solid var(--line); border-radius: 14px; padding: 14px; }
+
+/* ---------- segmented tabs / radios ---------- */
+.seg { display: flex; gap: 4px; background: #ebe8f5; padding: 4px; border-radius: 12px; margin-bottom: 14px; overflow-x: auto; }
+.seg a { flex: 1 0 auto; text-align: center; padding: 9px 12px; border-radius: 9px; font-weight: 700; color: var(--muted); white-space: nowrap; }
+.seg a.active { background: #fff; color: var(--ink); box-shadow: var(--shadow); }
+.radios { display: flex; flex-direction: column; gap: 8px; }
+.radio { display: flex; align-items: center; gap: 10px; padding: 12px 14px; background: #fff; border: 1px solid var(--line); border-radius: 12px; cursor: pointer; }
+.radio input { width: 20px; height: 20px; accent-color: var(--brand); flex: 0 0 auto; }
+.radio:has(input:checked) { border-color: var(--brand); background: var(--brand-soft); }
+.field .lbl { display: block; font-size: 14px; font-weight: 600; margin-bottom: 6px; }
+.list .item .ic { width: 22px; height: 22px; color: var(--brand); flex: 0 0 auto; }
+a.item { color: var(--ink); }
+.off-txt { color: var(--accent); }
+a.stat { color: var(--ink); }

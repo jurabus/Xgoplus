@@ -1,4 +1,4 @@
-import { sb, h, clear, errMsg, busy, toast, confirmDialog, mediaUrl, uploadImage, pct, initialOf } from '../common.js';
+import { sb, h, clear, errMsg, busy, toast, confirmDialog, mediaUrl, uploadImage, pct, initialOf, limitsEditor } from '../common.js';
 import { sheet, field, input, textarea, checkbox, pagedList } from './ui.js';
 
 let list, q = '', cats = [];
@@ -54,7 +54,10 @@ function createSheet() {
   });
 }
 
-function editSheet(p) {
+async function editSheet(p0) {
+  const { data: lim } = await sb.from('providers').select('limit_count,limit_period,allowed_days').eq('id', p0.id).maybeSingle();
+  const p = { ...p0, ...(lim || {}) };
+  const limits = limitsEditor(p);
   let imagePath = p.image_path;
   const prev = thumb(p); prev.classList.add('preview');
   const file = h('input', { type: 'file', accept: 'image/*' });
@@ -77,6 +80,7 @@ function editSheet(p) {
   const form = h('form', { class: 'stack' },
     h('div', { class: 'img-pick' }, h('div', { class: 'slot' }, prev), file),
     field('Business name', name), field('Category', cat), field('Discount %', disc), field('Special notes', notes),
+    h('div', { class: 'card stack' }, h('b', { text: 'Usage limits' }), limits.el),
     field('Sort order (lower shows first)', sort),
     h('label', { class: 'switch' }, h('span', { text: 'Active (visible + can scan)' }), active), err, save);
   const pw = input({ type: 'text', maxlength: 72, placeholder: 'New password (min 8)', autocomplete: 'off' });
@@ -90,7 +94,7 @@ function editSheet(p) {
     busy(save, true);
     const { error } = await sb.rpc('admin_update_provider', { p_id: p.id, p_patch: {
       name: name.value.trim(), discount_percent: Number(disc.value), notes: notes.value.trim(),
-      sort_order: Math.trunc(Number(sort.value) || 0), is_active: active.checked, image_path: imagePath, category_id: cat.value,
+      sort_order: Math.trunc(Number(sort.value) || 0), is_active: active.checked, image_path: imagePath, category_id: cat.value, ...limits.value(),
     } });
     busy(save, false);
     if (error) { err.textContent = errMsg(error); return; }

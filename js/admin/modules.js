@@ -8,6 +8,8 @@ export const MODULES = [
   { id: 'membership', title: 'Customer membership + QR', core: false },
   { id: 'scanner', title: 'Provider QR scanner', core: false },
   { id: 'provider-profile', title: 'Provider profile editing', core: false },
+  { id: 'scan-history', title: 'Customer scan history', core: false },
+  { id: 'complaints', title: 'Customer reports (complaints)', core: false },
 ];
 
 export async function render(root) {

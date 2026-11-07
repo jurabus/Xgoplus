@@ -10,6 +10,8 @@ Members discount platform — https://xgoplus.online
 - **Search**: header search on every customer page — live top-5 suggestions (image, name, % off) tolerant to typos,
   accents and Arabic letter variants; "View all" opens `search.html` (20 per page, more on scroll).
 - **Categories**: filter chips on home and search pages; managed in the admin Categories tab.
+- **Usage rules** are generated from structured limits (never free text) and shown on the partner page; members see uses left.
+- **History** (`history.html`), **Report a partner** (`report.html`), **change password** (account + partner portal).
 - **Admin** (`/admin.html`, email + password, listed in `admins` table, 20-min idle logout) manages
   providers, members, banners, every text, scan log and module switches (`app_disabled_modules`).
 
@@ -47,12 +49,15 @@ Web app only (no native iOS/Android app).
 3. `migrations/003_membership.sql` — memberships, QR tokens, admin member RPCs
 4. `migrations/004_scanner.sql` — scan verification, scan log, admin stats
 5. `migrations/005_categories_search.sql` — categories, provider category, typo-tolerant search (`search_providers`)
+6. `migrations/006_limits_history_complaints.sql` — usage limits (uses per day/week/month/year + allowed weekdays, Cairo time,
+   enforced in `verify_member_qr` with an advisory lock; re-scan within 15 min isn't counted twice), customer scan history,
+   complaints (customer → admin only), min-discount filter
 
 `supabase/setup_all.sql` = all of the above in one file (regenerate with `tools/gen-setup-all.sh`).
 
 ## Tests
 
 ```sh
-python3 -I tests/db/test_rls.py     # 170 database checks incl. 20k-row performance
+python3 -I tests/db/test_rls.py     # 218 database checks incl. 20k-row performance
 tests/e2e/run.sh                    # full UI run, screenshots of every screen
 ```

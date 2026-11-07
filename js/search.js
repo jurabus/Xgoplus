@@ -33,7 +33,7 @@ export function mountSearch(topbar, initial = '') {
     const my = ++seq;
     if (!pop.childElementCount) pop.append(h('div', { class: 'spinner' }));
     open(true);
-    const { data, error } = await sb.rpc('search_providers', { p_q: q, p_category: null, p_limit: SUGGEST_LIMIT, p_offset: 0 });
+    const { data, error } = await sb.rpc('search_providers', { p_q: q, p_category: null, p_limit: SUGGEST_LIMIT, p_offset: 0, p_min_discount: null });
     if (my !== seq) return; // a newer keystroke won
     clear(pop); active = -1;
     if (error) { pop.append(h('div', { class: 'search-empty', text: 'Search is unavailable right now.' })); return; }
