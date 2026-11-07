@@ -323,6 +323,52 @@ def main():
     check("delete provider removes auth user", ok(None, "select count(*) from auth.users where id=%s", (p2u,))[0][0] == 0)
     check("admin table hidden from admin via API too", run(A, "select * from public.admins")[1] is not None)
 
+    # ------------------------------------------------------------ categories + search (005)
+    cats = ok(G, "select name from public.categories order by sort_order")
+    check("starter categories seeded", [c[0] for c in cats][:3] == ["Cafés", "Restaurants", "Gyms"], str(cats))
+    denied("guest cannot add category", G, "insert into public.categories (name) values ('x')")
+    denied("customer cannot add category", c1, "insert into public.categories (name) values ('x')")
+    denied("provider cannot add category", p1u, "insert into public.categories (name) values ('x')")
+    ok(p1u, "update public.categories set name='hacked'")
+    check("provider cannot rename category", ok(None, "select count(*) from public.categories where name='hacked'")[0][0] == 0)
+    cafe_cat = ok(A, "insert into public.categories (name, icon, sort_order) values ('Coffee <b>Shops</b>', '☕', 0) returning id, name")[0]
+    check("category name sanitized", cafe_cat[1] == "Coffee bShops/b", str(cafe_cat))
+    denied("category image outside categories/", A, "insert into public.categories (name, image_path) values ('y', 'providers/x.jpg')")
+    hidden = ok(A, "insert into public.categories (name, is_active) values ('Hidden cat', false) returning id")[0][0]
+    check("guest doesn't see hidden category", "Hidden cat" not in [c[0] for c in ok(G, "select name from public.categories")])
+    gyms = ok(None, "select id from public.categories where name='Gyms'")[0][0]
+    ok(A, "select public.admin_update_provider(%s, %s)", (p1, json.dumps({"category_id": str(cafe_cat[0])})))
+    denied("provider cannot change own category", p1u, "update public.providers set category_id=%s where id=%s", (gyms, p1))
+    check("guest sees provider category", ok(G, "select category_id from public.providers where id=%s", (p1,))[0][0] == cafe_cat[0])
+    denied("guest cannot read search_name", G, "select search_name from public.providers")
+    for name in ["Power Gym", "Gold's Gym", "Café Aroma", "مطعم أبو السيد", "Dr. Ahmed Dental Clinic", "Zara Store"]:
+        ok(A, "select public.admin_create_provider(%s, 'Passw0rd!', %s, 10, '')", ("u" + uuid.uuid4().hex[:10], name))
+    ok(A, "select public.admin_update_provider(id, %s) from public.providers where name='Power Gym'", (json.dumps({"category_id": str(gyms)}),))
+    def S(q, cat=None, lim=5, off=0):
+        return [r[0] for r in ok(G, "select name from public.search_providers(%s, %s, %s, %s)", (q, cat, lim, off))]
+    check("search exact", S("aroma")[:1] == ["Café Aroma"], str(S("aroma")))
+    check("search accent-insensitive", "Café Aroma" in S("cafe"), str(S("cafe")))
+    check("search typo 'aroam'", "Café Aroma" in S("aroam"), str(S("aroam")))
+    check("search typo 'powr gym'", S("powr gym")[:1] == ["Power Gym"], str(S("powr gym")))
+    check("search typo 'dentel'", "Dr. Ahmed Dental Clinic" in S("dentel"), str(S("dentel")))
+    check("search typo 'zarra'", "Zara Store" in S("zarra"), str(S("zarra")))
+    check("search case-insensitive", "Zara Store" in S("ZARA"))
+    check("search prefix ranks first", S("gym")[0] in ("Gym Two", "Gold's Gym", "Power Gym"), str(S("gym")))
+    check("search arabic hamza variants", "مطعم أبو السيد" in S("ابو السيد"), str(S("ابو السيد")))
+    check("search by category name", "Power Gym" in S("gyms"), str(S("gyms")))
+    check("search category filter", S("gym", gyms) == ["Power Gym"], str(S("gym", gyms)))
+    check("search no garbage matches", S("xqzv") == [], str(S("xqzv")))
+    check("search empty query", S("   ") == [] and S("%%%") == [])
+    check("search hides inactive", "Gym Two" not in S("gym two"), str(S("gym two")))
+    check("search wildcard injection", S("%") == [] and S("_") == [])
+    check("search limit capped at 20", len(ok(G, "select * from public.search_providers('a', null, 500, 0)")) <= 20)
+    rows = ok(A, "select name, category_name from public.admin_list_providers('aroma', 10, 0)")
+    check("admin list shows category", rows == [("Café Aroma", None)] or rows[0][0] == "Café Aroma", str(rows))
+    check("admin category counts", any(r[0] == gyms for r in ok(A, "select * from public.admin_category_counts()")))
+    denied("guest cannot call admin_category_counts", G, "select public.admin_category_counts()")
+    ok(A, "delete from public.categories where id=%s", (cafe_cat[0],))
+    check("deleting category un-assigns providers", ok(None, "select category_id from public.providers where id=%s", (p1,))[0][0] is None)
+
     # ------------------------------------------------------------ performance (~20k rows)
     t = time.time()
     ok(None, """
@@ -335,6 +381,7 @@ def main():
       from public.profiles where phone like '2010%' and length(phone) = 12 and id <> 'C1ID';
       insert into public.providers (username, name, discount_percent, sort_order)
       select 'prov' || g, 'Provider ' || g, 5 + (g % 40), g % 10 from generate_series(1, 20000) g;
+      update public.providers p set category_id = (select (array_agg(id order by sort_order))[1 + abs(hashtext(p.id::text)) % 6] from public.categories where is_active) where username like 'prov%';
       insert into public.scans (provider_id, member_id, result)
       select (select id from public.providers order by random() limit 1), null, 'invalid' from generate_series(1, 20000);
       analyze;
@@ -352,6 +399,10 @@ def main():
 
     timed("guest provider page", G, "select id,name,image_path,discount_percent from public.providers where is_active order by sort_order, name, id limit 24 offset 4800")
     timed("guest provider search", G, "select id,name from public.providers where is_active and name ilike '%%der 1234%%' order by sort_order, name limit 24")
+    timed("search typo (20k providers)", G, "select * from public.search_providers('provder 1234', null, 5, 0)")
+    timed("search substring page 3", G, "select * from public.search_providers('provider', null, 20, 40)")
+    timed("search short query", G, "select * from public.search_providers('pr', null, 5, 0)")
+    timed("category filter page", G, "select id,name from public.providers where is_active and category_id = (select id from public.categories order by sort_order limit 1) order by sort_order, name, id limit 24")
     timed("customer context", c1, "select public.get_my_context()")
     timed("customer QR", c1, "select public.get_member_qr()")
     timed("provider scan", p1u, "select public.verify_member_qr(%s)", (ok(c1, "select public.get_member_qr()->>'token'")[0][0],))

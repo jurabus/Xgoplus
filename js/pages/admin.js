@@ -5,6 +5,7 @@ import { sb, loadSettings, S, h, $, clear, errMsg, busy, getContext, logout, idl
 const TABS = [
   { id: 'dashboard', title: 'Dashboard' },
   { id: 'providers', title: 'Providers' },
+  { id: 'categories', title: 'Categories' },
   { id: 'members', title: 'Members' },
   { id: 'banners', title: 'Banners' },
   { id: 'texts', title: 'Texts & settings' },

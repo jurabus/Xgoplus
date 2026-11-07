@@ -158,6 +158,8 @@ begin
   if v_uid is not null then delete from auth.users where id = v_uid; end if;
 end $$;
 
+-- (005 changes the return type, so drop first to stay re-runnable)
+drop function if exists public.admin_list_providers(text, int, int);
 create or replace function public.admin_list_providers(
   p_search text default '', p_limit int default 50, p_offset int default 0
 ) returns table (

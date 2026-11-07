@@ -4,19 +4,23 @@ export default {
   "tagline": "Exclusive discounts for members",
   "text_direction": "ltr",
   "home_heading": "Our partners",
-  "home_search_placeholder": "Search partners",
+  "search_placeholder": "Search partners, e.g. gym, café",
+  "search_view_all": "View all results",
+  "search_no_results": "No partners match",
+  "search_results_title": "Results for",
   "home_empty": "No partners yet — check back soon.",
+  "categories_heading": "Categories",
+  "categories_all": "All",
+  "category_empty": "No partners in this category yet.",
   "off_suffix": "% OFF",
   "provider_notes_title": "Offer details",
   "provider_cta_member": "Show your membership QR at checkout",
   "provider_cta_guest": "Become a member to get this discount",
-
   "nav_home": "Partners",
   "nav_membership": "Membership",
   "nav_account": "Account",
   "nav_login": "Log in",
   "nav_partner": "Partner portal",
-
   "login_title": "Welcome back",
   "login_subtitle": "Log in with your phone number",
   "signup_title": "Create your account",
@@ -29,7 +33,6 @@ export default {
   "signup_button": "Sign up",
   "login_error": "Wrong phone number or password.",
   "signup_exists": "This phone number already has an account.",
-
   "membership_title": "XGo Plus Membership",
   "membership_price_egp": 199,
   "membership_free": true,
@@ -44,7 +47,6 @@ export default {
   "membership_valid_until": "Valid until",
   "membership_login_needed": "Log in or create an account to subscribe.",
   "qr_hint": "Show this code to the cashier. It refreshes automatically.",
-
   "partner_login_title": "Partner login",
   "partner_login_subtitle": "For XGo Plus partner businesses",
   "username_label": "Username",
@@ -58,11 +60,9 @@ export default {
   "scan_again": "Scan next",
   "partner_profile_title": "My business",
   "partner_history_title": "Recent scans",
-
   "footer_text": "© XGo Plus",
   "contact_phone": "",
   "contact_whatsapp": "",
-
   "app_disabled_modules": []
 }
 ;
