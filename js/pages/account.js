@@ -1,4 +1,4 @@
-import { sb, shell, S, h, $, clear, errMsg, busy, toast, logout, localPhone, fmtDate } from '../common.js';
+import { sb, shell, S, h, $, clear, errMsg, busy, toast, logout, localPhone, fmtDate, passwordForm, icon, moduleOn } from '../common.js';
 
 const app = $('#app');
 async function main() {
@@ -30,7 +30,11 @@ async function main() {
         h('div', { class: 'grow' }, h('b', { text: S('membership_title') }),
           h('div', { class: 'small muted', text: m.expires_at ? `${S('membership_valid_until')}: ${fmtDate(m.expires_at)}` : S('membership_cta') })),
         h('span', { class: `badge ${m.status === 'active' ? 'ok' : m.status === 'expired' ? 'bad' : 'brand'}`,
-          text: m.status === 'active' ? S('membership_active_label') : m.status === 'expired' ? S('membership_expired_label') : '→' })));
+          text: m.status === 'active' ? S('membership_active_label') : m.status === 'expired' ? S('membership_expired_label') : '→' })),
+      h('div', { class: 'list' },
+        moduleOn('scan-history') ? h('a', { class: 'item', href: 'history.html' }, icon('history', 'ic'), h('b', { class: 'grow', text: S('history_title') }), h('span', { class: 'muted', text: '›' })) : null,
+        moduleOn('complaints') ? h('a', { class: 'item', href: 'report.html#mine' }, icon('flag', 'ic'), h('b', { class: 'grow', text: S('my_reports_title') }), h('span', { class: 'muted', text: '›' })) : null),
+      passwordForm());
   } else if (ctx.role === 'admin') {
     app.append(h('a', { class: 'btn block ghost', href: 'admin.html', text: 'Open admin panel' }));
   }

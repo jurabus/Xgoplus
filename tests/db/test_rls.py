@@ -369,6 +369,105 @@ def main():
     ok(A, "delete from public.categories where id=%s", (cafe_cat[0],))
     check("deleting category un-assigns providers", ok(None, "select category_id from public.providers where id=%s", (p1,))[0][0] is None)
 
+    # ------------------------------------------------------------ 006: limits, history, complaints
+    p3 = ok(A, "select public.admin_create_provider('limit_cafe', 'Passw0rd!', 'Limit Cafe', 30, 'Dine in')")[0][0]
+    p3u = ok(None, "select user_id from public.providers where id=%s", (p3,))[0][0]
+    check("guest sees limit columns", ok(G, "select limit_count, limit_period, allowed_days from public.providers where id=%s", (p3,))[0] == (None, None, None))
+    denied("limit count without period rejected", p3u, "update public.providers set limit_count=1 where id=%s", (p3,))
+    denied("limit bad period rejected", p3u, "update public.providers set limit_count=1, limit_period='hour' where id=%s", (p3,))
+    denied("limit count 0 rejected", p3u, "update public.providers set limit_count=0, limit_period='month' where id=%s", (p3,))
+    denied("bad weekday rejected", p3u, "update public.providers set allowed_days='{7}' where id=%s", (p3,))
+    ok(p3u, "update public.providers set allowed_days='{0,1,2,3,4,5,6,6}' where id=%s", (p3,))
+    check("all 7 days normalizes to no restriction", ok(None, "select allowed_days from public.providers where id=%s", (p3,))[0][0] is None)
+    ok(c1, "update public.providers set limit_count=50, limit_period='day' where id=%s", (p3,))
+    check("customer cannot set limits", ok(None, "select limit_count from public.providers where id=%s", (p3,))[0][0] is None)
+    ok(p3u, "update public.providers set limit_count=1, limit_period='month' where id=%s", (p3,))
+    today = ok(None, "select extract(dow from now() at time zone 'Africa/Cairo')::int")[0][0]
+    def scan3(uid):
+        tok = ok(uid, "select public.get_member_qr()->>'token'")[0][0]
+        return ok(p3u, "select public.verify_member_qr(%s)", (tok,))[0][0]
+    r = scan3(c4)
+    check("first scan active + counted", r["status"] == "active" and not r["repeat"] and r["usage"]["uses_left"] == 0, str(r))
+    r = scan3(c4)
+    check("re-scan within 15 min = same checkout, not counted", r["status"] == "active" and r["repeat"], str(r))
+    check("only one counted use", ok(None, "select count(*) from public.scans where provider_id=%s and counted", (p3,))[0][0] == 1)
+    ok(None, "update public.scans set created_at = now() - interval '20 minutes' where provider_id=%s", (p3,))
+    r = scan3(c4)
+    check("limit reached after 1/month", r["status"] == "limit_reached" and r["discount_percent"] is None and r["usage"]["resets_at"], str(r))
+    u = ok(c4, "select public.my_provider_usage(%s)", (p3,))[0][0]
+    check("customer sees own usage", u["used"] == 1 and u["uses_left"] == 0 and u["limit_period"] == "month", str(u))
+    denied("guest cannot read usage", G, "select public.my_provider_usage(%s)", (p3,))
+    ok(None, "update public.scans set created_at = now() - interval '40 days' where provider_id=%s", (p3,))
+    r = scan3(c4)
+    check("new month -> active again", r["status"] == "active" and not r["repeat"], str(r))
+    ok(A, "select public.admin_update_provider(%s, %s)", (p3, json.dumps({"allowed_days": [(today + 1) % 7], "limit_count": None, "limit_period": ""})))
+    row = ok(None, "select allowed_days, limit_count, limit_period from public.providers where id=%s", (p3,))[0]
+    check("admin sets days + clears limit", row == ([(today + 1) % 7], None, None), str(row))
+    ok(None, "update public.scans set created_at = now() - interval '20 minutes' where provider_id=%s", (p3,))
+    r = scan3(c4)
+    check("wrong weekday -> not_today", r["status"] == "not_today" and r["discount_percent"] is None and r["usage"]["allowed_days"] == [(today + 1) % 7], str(r))
+    ok(p3u, "update public.providers set allowed_days=%s where id=%s", ([today, (today + 3) % 7], p3))
+    r = scan3(c4)
+    check("allowed weekday -> active", r["status"] == "active", str(r))
+    ok(A, "select public.admin_update_provider(%s, '{\"allowed_days\": null}')", (p3,))
+    check("admin clears days", ok(None, "select allowed_days from public.providers where id=%s", (p3,))[0][0] is None)
+    r = scan3(c2)  # revoked earlier -> expired, never counted
+    check("expired scan not counted", r["status"] == "expired" and ok(None, "select counted from public.scans where member_id=%s and provider_id=%s order by id desc limit 1", (c2, p3))[0][0] is False, str(r))
+    # parallel scans of the same QR must not double-count
+    import threading
+    ok(A, "select public.admin_update_provider(%s, '{\"limit_count\": 1, \"limit_period\": \"year\"}')", (p3,))
+    c6, _ = signup("201550003333", "Par", "Allel")
+    ok(c6, "select public.subscribe_membership()")
+    tok6 = ok(c6, "select public.get_member_qr()->>'token'")[0][0]
+    outs = []
+    def par():
+        with psycopg.connect(DSN, autocommit=True) as cc, cc.transaction():
+            cc.execute("select set_config('request.jwt.claims', %s, true)", (json.dumps({"sub": str(p3u), "role": "authenticated"}),))
+            cc.execute("set local role authenticated")
+            outs.append(cc.execute("select public.verify_member_qr(%s)", (tok6,)).fetchone()[0])
+    ths = [threading.Thread(target=par) for _ in range(6)]
+    [t.start() for t in ths]; [t.join() for t in ths]
+    check("parallel scans count once", ok(None, "select count(*) from public.scans where member_id=%s and counted", (c6,))[0][0] == 1
+          and sum(1 for o in outs if o["status"] == "active" and not o["repeat"]) == 1, str([o["status"] for o in outs]))
+    # history
+    h1 = ok(c4, "select provider_name, result from public.my_scan_history(50, 0)")
+    check("customer history shows own scans with names", len(h1) >= 5 and all(x[0] == "Limit Cafe" for x in h1) and h1[0][1] == "active", str(h1[:3]))
+    check("history is private", all(x[0] != "Limit Cafe" or False for x in []) and "Limit Cafe" not in [x[0] for x in ok(c1, "select provider_name from public.my_scan_history(50,0)")])
+    check("provider history via customer rpc is empty", ok(p3u, "select * from public.my_scan_history(5,0)") == [])
+    denied("guest cannot read history", G, "select * from public.my_scan_history(5,0)")
+    # complaints
+    reasons = ["Refused to apply the discount", "Applied a lower discount than shown on the website"]
+    cid = ok(c1, "select public.file_complaint(%s, %s, %s)", (p3, reasons[0], "Cashier said <b>no</b>\x07"))[0][0]
+    check("complaint filed + sanitized", ok(None, "select details, status from public.complaints where id=%s", (cid,))[0] == ("Cashier said bno/b", "open"))
+    denied("complaint invalid reason", c1, "select public.file_complaint(%s, 'I just hate them', '')", (p3,), contains="invalid_reason")
+    denied("complaint unknown provider", c1, "select public.file_complaint(gen_random_uuid(), %s, '')", (reasons[0],), contains="not_found")
+    ok(c1, "select public.file_complaint(%s, %s, '')", (p3, reasons[1]))
+    denied("max 2 reports per partner per week", c1, "select public.file_complaint(%s, %s, '')", (p3, reasons[0]), contains="too_many_reports")
+    denied("guest cannot complain", G, "select public.file_complaint(%s, %s, '')", (p3, reasons[0]))
+    denied("provider cannot complain", p3u, "select public.file_complaint(%s, %s, '')", (p1, reasons[0]))
+    for t in [c1, p3u, A]:
+        denied("complaints table not directly readable", t, "select * from public.complaints")
+    check("customer sees own complaints", len(ok(c1, "select * from public.my_complaints()")) == 2)
+    check("other customer sees none", ok(c2, "select * from public.my_complaints()") == [])
+    check("provider sees no complaints", ok(p3u, "select * from public.my_complaints()") == [])
+    denied("customer cannot list all complaints", c1, "select * from public.admin_list_complaints()")
+    denied("provider cannot update complaint", p3u, "select public.admin_update_complaint(%s, 'dismissed', '')", (cid,))
+    rows = ok(A, "select provider_name, member_phone, status, member_scans_here from public.admin_list_complaints('open', 10, 0)")
+    check("admin lists complaints", len(rows) == 2 and rows[0][0] == "Limit Cafe" and rows[0][1] == "201001112222", str(rows))
+    check("admin stats open complaints", ok(A, "select public.admin_stats()->>'complaints_open'")[0][0] == "2")
+    denied("admin invalid status", A, "select public.admin_update_complaint(%s, 'deleted', '')", (cid,), contains="invalid_status")
+    ok(A, "select public.admin_update_complaint(%s, 'resolved', 'Partner warned')", (cid,))
+    mine = {r[0]: r for r in ok(c1, "select id, status, admin_note from public.my_complaints()")}
+    check("customer sees resolution", mine[cid][1:] == ("resolved", "Partner warned"), str(mine.get(cid)))
+    ok(A, "update public.settings set data = data || '{\"complaint_reasons\": [\"Rude staff\", \"Other\"]}'")
+    ok(c2, "select public.file_complaint(%s, 'Rude staff', '')", (p3,))
+    denied("removed default reason rejected", c2, "select public.file_complaint(%s, %s, '')", (p3, reasons[1]), contains="invalid_reason")
+    hits = [run(c3, "select public.file_complaint(%s, 'Other', '')", (pid,)) for (pid,) in ok(None, "select id from public.providers limit 6")]
+    check("complaint daily rate limit", hits[-1][1] is not None and "rate_limited" in hits[-1][1], str(hits[-1]))
+    # discount filter in search
+    res = [r[0] for r in ok(G, "select discount_percent from public.search_providers('a', null, 20, 0, 20)")]
+    check("search min discount", res and min(res) >= 20, str(res))
+
     # ------------------------------------------------------------ performance (~20k rows)
     t = time.time()
     ok(None, """
@@ -384,6 +483,9 @@ def main():
       update public.providers p set category_id = (select (array_agg(id order by sort_order))[1 + abs(hashtext(p.id::text)) % 6] from public.categories where is_active) where username like 'prov%';
       insert into public.scans (provider_id, member_id, result)
       select (select id from public.providers order by random() limit 1), null, 'invalid' from generate_series(1, 20000);
+      insert into public.scans (provider_id, member_id, result, counted, discount_percent)
+      select (select id from public.providers order by random() limit 1), (array(select id from public.profiles limit 500))[1 + g % 500], 'active', true, 10
+      from generate_series(1, 20000) g;
       analyze;
     """.replace("C1ID", str(c1)))
     print(f"seeded 20k rows/table in {time.time()-t:.1f}s")
@@ -403,6 +505,9 @@ def main():
     timed("search substring page 3", G, "select * from public.search_providers('provider', null, 20, 40)")
     timed("search short query", G, "select * from public.search_providers('pr', null, 5, 0)")
     timed("category filter page", G, "select id,name from public.providers where is_active and category_id = (select id from public.categories order by sort_order limit 1) order by sort_order, name, id limit 24")
+    timed("customer history", c1, "select * from public.my_scan_history(20, 0)")
+    timed("admin complaints", A, "select * from public.admin_list_complaints(null, 30, 0)")
+    timed("search with min discount", G, "select * from public.search_providers('provider', null, 20, 0, 30)")
     timed("customer context", c1, "select public.get_my_context()")
     timed("customer QR", c1, "select public.get_member_qr()")
     timed("provider scan", p1u, "select public.verify_member_qr(%s)", (ok(c1, "select public.get_member_qr()->>'token'")[0][0],))

@@ -9,7 +9,10 @@ const GROUPS = [
   ['Navigation', /^nav_/],
   ['Log in & sign up', /^(login_|signup_|phone_|password_|first_name|last_name)/],
   ['Membership', /^(membership_|qr_)/],
-  ['Partner portal & scanner', /^(partner_|username_|scan_)/],
+  ['Partner portal & scanner', /^(partner_|username_|scan_|limits_)/],
+  ['Usage rules', /^(rules_|rule_|period_|day_|usage_)/],
+  ['History, password, reports', /^(history_|password_|current_password|new_password|report_|my_reports|complaint_|status_|nav_report|nav_history)/],
+  ['Filters', /^discount_/],
 ];
 const SKIP = new Set(['app_disabled_modules']);
 const label = (k) => k.replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase());
@@ -45,12 +48,15 @@ export async function render(root) {
       if (k === 'text_direction') {
         el = h('select', { class: 'input' }, h('option', { value: 'ltr', text: 'Left to right (English)' }), h('option', { value: 'rtl', text: 'Right to left (Arabic)' }));
         el.value = val === 'rtl' ? 'rtl' : 'ltr';
+      } else if (Array.isArray(def)) {
+        el = textarea((Array.isArray(val) ? val : def).join('\n'), { rows: Math.max(3, def.length + 1), maxlength: 2000 });
       } else if (typeof def === 'boolean') el = checkbox(val);
       else if (typeof def === 'number') el = input({ type: 'number', step: 'any', value: val });
       else if (String(def).includes('\n') || String(def).length > 60) el = textarea(val ?? '', { rows: 3, maxlength: 2000 });
       else el = input({ value: val ?? '', maxlength: 300, placeholder: def });
       controls[k] = el;
-      card.append(typeof def === 'boolean' ? h('label', { class: 'switch' }, h('span', { text: label(k) }), el) : field(label(k), el, String(def) && val !== def ? `Default: ${def}` : null));
+      const hint = Array.isArray(def) ? 'One per line' : (String(def) && val !== def ? `Default: ${def}` : null);
+      card.append(typeof def === 'boolean' ? h('label', { class: 'switch' }, h('span', { text: label(k) }), el) : field(label(k), el, hint));
     }
     form.append(card);
   }
@@ -62,6 +68,11 @@ export async function render(root) {
     for (const [k, el] of Object.entries(controls)) {
       const def = DEFAULTS[k];
       let v = typeof def === 'boolean' ? el.checked : typeof def === 'number' ? Number(el.value) : el.value;
+      if (Array.isArray(def)) {
+        v = el.value.split('\n').map((x) => x.trim()).filter(Boolean).slice(0, 20);
+        if (!v.length || JSON.stringify(v) === JSON.stringify(def)) delete data[k]; else data[k] = v;
+        continue;
+      }
       if (typeof def === 'number' && !Number.isFinite(v)) v = def;
       if (typeof v === 'string') v = v.trim();
       if (v === def || v === '') delete data[k]; else data[k] = v;

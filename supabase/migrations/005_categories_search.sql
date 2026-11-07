@@ -87,6 +87,8 @@ grant select (category_id) on public.providers to anon, authenticated;
 -- when it is "close enough" to a word sequence in the name (typos),
 -- or when it matches the category name. Ranked: prefix > contains > similarity.
 -- ---------------------------------------------------------------------
+-- 006 adds a 5th parameter; drop it here so a full re-run never leaves two versions
+drop function if exists public.search_providers(text, uuid, int, int, numeric);
 create or replace function public.search_providers(
   p_q text, p_category uuid default null, p_limit int default 20, p_offset int default 0
 ) returns table (id uuid, name text, image_path text, discount_percent numeric, category_id uuid)

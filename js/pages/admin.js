@@ -9,6 +9,7 @@ const TABS = [
   { id: 'members', title: 'Members' },
   { id: 'banners', title: 'Banners' },
   { id: 'texts', title: 'Texts & settings' },
+  { id: 'complaints', title: 'Reports' },
   { id: 'scans', title: 'Scans' },
   { id: 'modules', title: 'Modules' },
 ];

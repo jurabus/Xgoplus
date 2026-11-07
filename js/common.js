@@ -54,6 +54,10 @@ const ICONS = {
   x: 'M6 6l12 12M18 6 6 18',
   clock: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zm0-15v5l3 2',
   login: 'M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M15 12H3',
+  flag: 'M5 21V4m0 0h11l-2 4 2 4H5',
+  history: 'M3 12a9 9 0 1 0 3-6.7L3 8m0-5v5h5m4-1v5l3 2',
+  lock: 'M6 11h12v10H6zM8 11V7a4 4 0 0 1 8 0v4',
+  filter: 'M3 5h18l-7 8v6l-4 2v-8z',
 };
 export function icon(name, cls = '') {
   const ns = 'http://www.w3.org/2000/svg';
@@ -169,6 +173,10 @@ const ERRORS = {
   invalid_image_path: 'Image upload failed. Please try again.',
   not_found: 'Not found.',
   invalid_days: 'Enter a number of days between 1 and 3660.',
+  invalid_reason: 'Please choose one of the listed reasons.',
+  too_many_reports: 'You already reported this partner twice this week. We are on it.',
+  providers_limit_check: 'Uses per period must be between 1 and 100.',
+  providers_days_check: 'Pick at least one day.',
 };
 export function errMsg(e) {
   const m = String(e?.message || e || '');
@@ -235,6 +243,7 @@ function navFor(ctx) {
   const off = new Set(Array.isArray(S('app_disabled_modules')) ? S('app_disabled_modules') : []);
   const items = [{ href: 'index.html', key: 'home', label: S('nav_home'), icon: 'home' }];
   if (!off.has('membership')) items.push({ href: 'membership.html', key: 'membership', label: S('nav_membership'), icon: 'card' });
+  if (role === 'customer' && !off.has('complaints')) items.push({ href: 'report.html', key: 'report', label: S('nav_report'), icon: 'flag' });
   if (role === 'guest' || role === 'none') items.push({ href: 'login.html', key: 'login', label: S('nav_login'), icon: 'login' });
   else items.push({ href: 'account.html', key: 'account', label: S('nav_account'), icon: 'user' });
   if (role === 'admin') items.push({ href: 'admin.html', key: 'admin', label: 'Admin', icon: 'shield' });
@@ -335,6 +344,98 @@ export function infiniteGrid(grid, more, loader, pageSize, emptyText) {
   }
   new IntersectionObserver((es) => { if (es.some((e) => e.isIntersecting)) load(false); }, { rootMargin: '600px' }).observe(sentinel);
   return { reset: () => load(true), more: () => load(false) };
+}
+
+// ---------- usage rules (generated from the provider's limits; never free text) ----------
+const tpl = (t, vars) => String(t).replace(/\{(\w+)\}/g, (_, k) => (vars[k] ?? ''));
+export function dayNames(short) { return String(S(short ? 'day_short' : 'day_names')).split(',').map((x) => x.trim()); }
+export function rulesText(p) {
+  const out = [];
+  if (Array.isArray(p.allowed_days) && p.allowed_days.length && p.allowed_days.length < 7) {
+    const names = dayNames(false);
+    out.push(`${S('rule_days')} ${p.allowed_days.map((d) => names[d]).join(', ')}`);
+  }
+  if (p.limit_count && p.limit_period) {
+    out.push(tpl(p.limit_count === 1 ? S('rule_uses_one') : S('rule_uses_many'), { n: p.limit_count, period: S(`period_${p.limit_period}`) }));
+  }
+  return out;
+}
+export function usageText(u) {
+  if (!u) return '';
+  if (u.valid_today === false) return S('usage_not_today');
+  if (u.limit_count && u.uses_left === 0) return tpl(S('usage_none_left'), { date: fmtDate(u.resets_at) });
+  if (u.limit_count) return tpl(S('usage_left'), { n: u.uses_left, period: S(`period_${u.limit_period}`) });
+  return '';
+}
+export function limitsEditor(p) {
+  const on = h('input', { type: 'checkbox' }); on.checked = !!p.limit_count;
+  const count = h('input', { class: 'input', type: 'number', min: 1, max: 100, step: 1, value: p.limit_count || 1, inputmode: 'numeric' });
+  const period = h('select', { class: 'input' }, ['day', 'week', 'month', 'year'].map((x) => h('option', { value: x, text: `/ ${S(`period_${x}`)}` })));
+  period.value = p.limit_period || 'month';
+  const usesRow = h('div', { class: 'row' }, h('div', { class: 'grow' }, count), h('div', { class: 'grow' }, period));
+  const sync = () => { usesRow.hidden = !on.checked; };
+  on.addEventListener('change', sync); sync();
+  const days = new Set(Array.isArray(p.allowed_days) && p.allowed_days.length ? p.allowed_days : [0, 1, 2, 3, 4, 5, 6]);
+  const short = dayNames(true);
+  const preview = h('div', { class: 'notes small' });
+  const dayBtns = short.map((label, d) => {
+    const b = h('button', { type: 'button', class: `daybtn${days.has(d) ? ' on' : ''}`, 'aria-pressed': String(days.has(d)), text: label });
+    b.addEventListener('click', () => {
+      if (days.has(d)) { if (days.size > 1) days.delete(d); } else days.add(d);
+      b.classList.toggle('on', days.has(d)); b.setAttribute('aria-pressed', String(days.has(d))); upd();
+    });
+    return b;
+  });
+  const value = () => ({
+    limit_count: on.checked ? Math.min(100, Math.max(1, Math.trunc(Number(count.value) || 1))) : null,
+    limit_period: on.checked ? period.value : null,
+    allowed_days: days.size === 7 ? null : [...days].sort((a, b) => a - b),
+  });
+  function upd() { const t = rulesText(value()); preview.textContent = t.length ? t.join(' · ') : 'No limits — valid every day, unlimited uses.'; }
+  [on, count, period].forEach((el) => el.addEventListener('input', upd)); on.addEventListener('change', upd); upd();
+  const el = h('div', { class: 'stack limits' },
+    h('label', { class: 'switch' }, h('span', { text: S('limits_enable') }), on), usesRow,
+    h('div', {}, h('div', { class: 'small', text: S('limits_days') }), h('div', { class: 'days' }, dayBtns)),
+    h('div', {}, h('div', { class: 'small muted', text: 'Customers will see:' }), preview));
+  return { el, value };
+}
+
+// ---------- change password (re-checks the current password first) ----------
+export function passwordForm() {
+  const cur = h('input', { class: 'input', type: 'password', autocomplete: 'current-password', maxlength: 72 });
+  const nw = h('input', { class: 'input', type: 'password', autocomplete: 'new-password', minlength: 8, maxlength: 72 });
+  const err = h('div', { class: 'form-error', role: 'alert' });
+  const btn = h('button', { class: 'btn', type: 'submit', text: S('password_title') });
+  const form = h('form', { class: 'card stack', novalidate: true },
+    h('b', { text: S('password_title') }),
+    h('label', { class: 'field' }, h('span', { text: S('current_password_label') }), cur),
+    h('label', { class: 'field' }, h('span', { text: S('new_password_label') }), nw), err, btn);
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault(); err.textContent = '';
+    if (nw.value.length < 8 || nw.value.length > 72) { err.textContent = ERRORS.weak_password; return; }
+    if (nw.value === cur.value) { err.textContent = 'New password must be different.'; return; }
+    busy(btn, true);
+    const { data: { user } } = await sb.auth.getUser();
+    const re = await sb.auth.signInWithPassword({ email: user?.email || '', password: cur.value });
+    if (re.error) { busy(btn, false); err.textContent = S('password_wrong_current'); return; }
+    const { error } = await sb.auth.updateUser({ password: nw.value });
+    busy(btn, false);
+    if (error) { err.textContent = errMsg(error); return; }
+    cur.value = ''; nw.value = '';
+    toast(S('password_changed'));
+  });
+  return form;
+}
+
+// ---------- discount filter ----------
+export const DISCOUNT_STEPS = [10, 20, 30, 50];
+export function discountSelect(value, onChange) {
+  const sel = h('select', { class: 'input discount-sel', 'aria-label': S('discount_filter_label') },
+    h('option', { value: '', text: S('discount_any') }),
+    DISCOUNT_STEPS.map((n) => h('option', { value: String(n), text: `${n}${S('discount_min_suffix')}` })));
+  sel.value = value ? String(value) : '';
+  sel.addEventListener('change', () => onChange(sel.value ? Number(sel.value) : null));
+  return sel;
 }
 
 export function param(name) { return new URLSearchParams(location.search).get(name); }
