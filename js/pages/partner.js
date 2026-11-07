@@ -1,6 +1,6 @@
 import {
   sb, shell, S, h, $, clear, icon, errMsg, busy, toast, providerEmail, getContext, mediaUrl,
-  uploadImage, pct, fmtDate, fmtDateTime, initialOf, logout,
+  uploadImage, pct, fmtDate, fmtDateTime, initialOf, logout, moduleOn,
 } from '../common.js';
 
 const app = $('#app');
@@ -174,7 +174,9 @@ async function historyView() {
 }
 
 function route() {
-  const r = (location.hash || '#scan').slice(1);
+  let r = (location.hash || '#scan').slice(1);
+  if (r === 'scan' && !moduleOn('scanner')) r = moduleOn('provider-profile') ? 'profile' : 'history';
+  if (r === 'profile' && !moduleOn('provider-profile')) r = 'history';
   document.querySelectorAll('.tabbar a, .topnav a').forEach((a) => a.classList.toggle('active', a.getAttribute('href') === `partner.html#${r}`));
   if (r === 'profile') profileView();
   else if (r === 'history') historyView();

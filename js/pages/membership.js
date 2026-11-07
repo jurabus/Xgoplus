@@ -1,4 +1,4 @@
-import { sb, shell, S, h, $, clear, errMsg, busy, fmtDate, toast, getContext } from '../common.js';
+import { sb, shell, S, h, $, clear, errMsg, busy, fmtDate, toast, getContext, moduleOn } from '../common.js';
 import { qrcode } from '../vendor/qrgen.js';
 
 const app = $('#app');
@@ -52,6 +52,7 @@ async function main() {
   const ctx = await shell('membership');
   clear(app);
   app.append(h('h1', { text: S('membership_title') }));
+  if (!moduleOn('membership')) { app.append(h('div', { class: 'card', text: 'Memberships are not available right now.' })); return; }
 
   if (ctx.role === 'guest' || ctx.role === 'none') {
     app.append(h('div', { class: 'mcard' }, priceBlock(), benefits(),
