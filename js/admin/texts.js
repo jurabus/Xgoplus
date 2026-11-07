@@ -4,7 +4,8 @@ import { field, input, textarea, checkbox } from './ui.js';
 
 const GROUPS = [
   ['General', /^(site_title|tagline|text_direction|footer_text|contact_)/],
-  ['Home & partner page', /^(home_|off_suffix|provider_)/],
+  ['Home & partner page', /^(home_|off_suffix|provider_|categor)/],
+  ['Search', /^search_/],
   ['Navigation', /^nav_/],
   ['Log in & sign up', /^(login_|signup_|phone_|password_|first_name|last_name)/],
   ['Membership', /^(membership_|qr_)/],

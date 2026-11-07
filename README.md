@@ -7,6 +7,9 @@ Members discount platform — https://xgoplus.online
   (199 EGP list price, free while `membership_free` is on) and show a QR code at checkout.
 - **Providers** (created only by admin) log in with username + password at `/partner.html`, edit their
   image/name/discount/notes, and scan customer QR codes to see *active + discount* or *expired*.
+- **Search**: header search on every customer page — live top-5 suggestions (image, name, % off) tolerant to typos,
+  accents and Arabic letter variants; "View all" opens `search.html` (20 per page, more on scroll).
+- **Categories**: filter chips on home and search pages; managed in the admin Categories tab.
 - **Admin** (`/admin.html`, email + password, listed in `admins` table, 20-min idle logout) manages
   providers, members, banners, every text, scan log and module switches (`app_disabled_modules`).
 
@@ -43,10 +46,13 @@ Web app only (no native iOS/Android app).
 2. `migrations/002_providers.sql` — providers + admin provider RPCs
 3. `migrations/003_membership.sql` — memberships, QR tokens, admin member RPCs
 4. `migrations/004_scanner.sql` — scan verification, scan log, admin stats
+5. `migrations/005_categories_search.sql` — categories, provider category, typo-tolerant search (`search_providers`)
+
+`supabase/setup_all.sql` = all of the above in one file (regenerate with `tools/gen-setup-all.sh`).
 
 ## Tests
 
 ```sh
-python3 -I tests/db/test_rls.py     # 135 database checks incl. 20k-row performance
+python3 -I tests/db/test_rls.py     # 170 database checks incl. 20k-row performance
 tests/e2e/run.sh                    # full UI run, screenshots of every screen
 ```

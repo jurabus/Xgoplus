@@ -221,3 +221,36 @@ textarea.input { min-height: 96px; resize: vertical; }
 .img-pick > * { min-width: 0; }
 input[type=file] { max-width: 100%; font-size: 14px; }
 main { overflow-wrap: anywhere; }
+
+/* ---------- header search (Amazon-style) ---------- */
+.topbar { flex-wrap: wrap; row-gap: 10px; }
+.hsearch { position: relative; order: 3; flex: 1 1 100%; display: flex; }
+.hsearch .input { min-height: 44px; padding: 10px 84px 10px 14px; border-radius: 12px; border: 2px solid var(--brand); -webkit-appearance: none; appearance: none; }
+.hsearch .input::-webkit-search-cancel-button { display: none; }
+.search-go { position: absolute; right: 0; top: 0; bottom: 0; width: 50px; border: 0; border-radius: 0 12px 12px 0; background: var(--brand); color: #fff; display: flex; align-items: center; justify-content: center; cursor: pointer; }
+.search-go svg { width: 20px; height: 20px; }
+.search-clear { position: absolute; right: 54px; top: 50%; transform: translateY(-50%); width: 30px; height: 30px; border: 0; background: none; color: var(--muted); display: flex; align-items: center; justify-content: center; cursor: pointer; }
+.search-clear svg { width: 16px; height: 16px; }
+.search-pop { position: absolute; top: calc(100% + 6px); left: 0; right: 0; z-index: 40; background: #fff; border-radius: 14px; box-shadow: 0 12px 32px rgba(22, 19, 43, .18); padding: 6px; max-height: 70vh; overflow-y: auto; }
+.sug { display: flex; align-items: center; gap: 12px; padding: 8px 10px; border-radius: 10px; color: var(--ink); }
+.sug.active, .sug:hover { background: var(--brand-soft); }
+.sug img, .sug .thumb { width: 44px; height: 44px; border-radius: 10px; object-fit: cover; flex: 0 0 44px; }
+.sug-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sug-name b { color: var(--brand); }
+.sug-off { color: var(--accent); font-weight: 800; font-size: 14px; }
+.sug-all { margin-top: 6px; min-height: 42px; }
+.search-empty { padding: 14px 10px; color: var(--muted); text-align: center; }
+@media (min-width: 760px) {
+  .hsearch { order: 0; flex: 1 1 320px; max-width: 560px; }
+}
+.results-title { font-size: 20px; }
+[dir="rtl"] .hsearch .input { padding: 10px 14px 10px 84px; }
+[dir="rtl"] .search-go { right: auto; left: 0; border-radius: 12px 0 0 12px; }
+[dir="rtl"] .search-clear { right: auto; left: 54px; }
+
+/* ---------- category chips ---------- */
+.chips { display: flex; gap: 8px; overflow-x: auto; margin: 4px -16px 14px; padding: 2px 16px 6px; scrollbar-width: none; scroll-snap-type: x proximity; }
+.chips::-webkit-scrollbar { display: none; }
+.chip { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 6px; min-height: 40px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--line); background: #fff; color: var(--ink); font-weight: 600; cursor: pointer; scroll-snap-align: start; }
+.chip.active { background: var(--ink); color: #fff; border-color: var(--ink); }
+.chip-ic { font-size: 17px; line-height: 1; }

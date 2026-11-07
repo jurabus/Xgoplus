@@ -240,7 +240,7 @@ function navFor(ctx) {
   if (role === 'admin') items.push({ href: 'admin.html', key: 'admin', label: 'Admin', icon: 'shield' });
   return items;
 }
-export async function shell(active, { requireRole } = {}) {
+export async function shell(active, { requireRole, searchBar } = {}) {
   await loadSettings();
   document.documentElement.dir = S('text_direction') === 'rtl' ? 'rtl' : 'ltr';
   const ctx = await getContext();
@@ -254,6 +254,9 @@ export async function shell(active, { requireRole } = {}) {
     logoPath ? h('img', { src: mediaUrl(logoPath), alt: S('site_title') }) : [S('site_title').replace(/\s*plus$/i, ''), h('span', { class: 'plus', text: 'Plus' })]);
   const top = h('header', { class: 'topbar' }, logo,
     h('nav', { class: 'topnav' }, items.map((i) => h('a', { href: i.href, class: i.key === active ? 'active' : '', text: i.label }))));
+  if (ctx.role !== 'provider' && searchBar !== false) {
+    import('./search.js').then((m) => m.mountSearch(top, typeof searchBar === 'string' ? searchBar : '')).catch(() => {});
+  }
   const tab = h('nav', { class: 'tabbar', 'aria-label': 'Main' },
     items.map((i) => h('a', { href: i.href, class: i.key === active ? 'active' : '', 'aria-current': i.key === active ? 'page' : null }, icon(i.icon), h('span', { text: i.label }))));
   const foot = h('footer', { class: 'footer' }, S('footer_text'),
@@ -270,6 +273,68 @@ export function idleLogout(minutes, to) {
   const reset = () => { clearTimeout(t); t = setTimeout(() => logout(to), minutes * 60 * 1000); };
   ['pointerdown', 'keydown', 'scroll', 'visibilitychange'].forEach((e) => addEventListener(e, reset, { passive: true }));
   reset();
+}
+
+// ---------- partners: categories + card (shared by home, search) ----------
+let catsPromise = null;
+export function loadCategories() {
+  if (!catsPromise) {
+    catsPromise = sb.from('categories').select('id,name,icon,image_path').eq('is_active', true)
+      .order('sort_order').order('name').limit(100)
+      .then(({ data }) => data || []).catch(() => []);
+  }
+  return catsPromise;
+}
+export function providerCard(p) {
+  return h('a', { class: 'pcard', href: `provider.html?id=${encodeURIComponent(p.id)}` },
+    h('div', { class: 'logo-box' },
+      p.image_path
+        ? h('img', { src: mediaUrl(p.image_path), alt: '', loading: 'lazy', decoding: 'async', width: 300, height: 300 })
+        : h('span', { class: 'initial', text: initialOf(p.name) })),
+    h('div', { class: 'meta' },
+      h('div', { class: 'name', text: p.name }),
+      h('div', { class: 'off', text: `${pct(p.discount_percent)}${S('off_suffix')}` })));
+}
+export function categoryChips(cats, selected, onPick) {
+  const bar = h('div', { class: 'chips', role: 'tablist', 'aria-label': S('categories_heading') });
+  const mk = (id, label, iconTxt) => {
+    const b = h('button', { type: 'button', role: 'tab', class: `chip${(selected || '') === (id || '') ? ' active' : ''}`, 'aria-selected': String((selected || '') === (id || '')) },
+      iconTxt ? h('span', { class: 'chip-ic', text: iconTxt }) : null, h('span', { text: label }));
+    b.addEventListener('click', () => {
+      bar.querySelectorAll('.chip').forEach((c) => { c.classList.remove('active'); c.setAttribute('aria-selected', 'false'); });
+      b.classList.add('active'); b.setAttribute('aria-selected', 'true');
+      b.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' });
+      onPick(id);
+    });
+    return b;
+  };
+  bar.append(mk('', S('categories_all'), ''), ...cats.map((c) => mk(c.id, c.name, c.icon)));
+  return bar;
+}
+// Infinite list: loader(offset) -> rows; renders into grid; returns { reset }
+export function infiniteGrid(grid, more, loader, pageSize, emptyText) {
+  let offset = 0, done = false, loading = false, seq = 0;
+  const sentinel = h('div', { class: 'sentinel', 'aria-hidden': 'true' });
+  async function load(reset) {
+    if (reset) { offset = 0; done = false; loading = false; clear(grid); }
+    if (loading || done) return;
+    loading = true;
+    const my = ++seq;
+    clear(more).append(h('div', { class: 'spinner' }));
+    let rows, error;
+    try { rows = await loader(offset); } catch (e) { error = e; }
+    if (my !== seq) return;
+    loading = false;
+    clear(more);
+    if (error) { more.append(h('p', { class: 'muted center', text: errMsg(error) })); return; }
+    rows.forEach((p) => grid.append(providerCard(p)));
+    offset += rows.length;
+    if (rows.length < pageSize) done = true;
+    if (!offset) more.append(h('div', { class: 'empty', text: typeof emptyText === 'function' ? emptyText() : emptyText }));
+    if (!done) more.append(sentinel);
+  }
+  new IntersectionObserver((es) => { if (es.some((e) => e.isIntersecting)) load(false); }, { rootMargin: '600px' }).observe(sentinel);
+  return { reset: () => load(true), more: () => load(false) };
 }
 
 export function param(name) { return new URLSearchParams(location.search).get(name); }
