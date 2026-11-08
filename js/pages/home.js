@@ -20,8 +20,18 @@ function hero() {
       h('div', { class: 'hero-art' }, h('img', { src: heroImg, alt: '', width: 645, height: 385, fetchpriority: 'high' })),
       h('div', { class: 'hero-tag', 'aria-hidden': 'true' }, 'Your', h('br'), 'Smart Choice', h('br'), 'for Great Deals!'),
       searchSlot));
-  mountSearch(searchSlot, '', { hero: true });
-  return el;
+  return { el, searchSlot };
+}
+
+// Desktop / tablet: the full designed banner, with a real button and a real search bar placed on it
+function heroBanner() {
+  const searchSlot = h('div', { class: 'hb-search' });
+  const el = h('section', { class: 'hero-banner', 'aria-label': S('site_title') },
+    h('img', { src: '/img/banner-1x.webp?v=1', srcset: '/img/banner-1x.webp?v=1 1536w, /img/banner-2x.webp?v=1 3072w', sizes: '100vw',
+      alt: `${S('hero_title_1')} ${S('hero_title_2')}`, width: 1536, height: 372, fetchpriority: 'high' }),
+    h('a', { class: 'btn pill hb-cta', href: 'offers.html' }, S('hero_cta'), icon('arrow')),
+    searchSlot);
+  return { el, searchSlot };
 }
 
 async function categoryStrip() {
@@ -96,7 +106,10 @@ async function main() {
   const ctx = await shell('home', { searchBar: false });
   clear(app);
   const catSlot = h('div'), bannerSlot = h('div'), dealsSlot = h('div', {}, h('div', { class: 'spinner' }));
-  app.append(hero(), catSlot, bannerSlot, dealsSlot, promo(ctx));
+  const wide = window.matchMedia('(min-width: 900px)').matches;
+  const top = wide ? heroBanner() : hero();
+  app.append(top.el, catSlot, bannerSlot, dealsSlot, promo(ctx));
+  mountSearch(top.searchSlot, '', { hero: true });
   const [cats, deals, bans] = await Promise.all([categoryStrip(), dealSections(), banners().catch(() => null)]);
   if (cats) catSlot.append(cats);
   clear(dealsSlot).append(...deals);

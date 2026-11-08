@@ -522,3 +522,17 @@ input[type=file] { max-width: 100%; font-size: 14px; }
 .view-all-wrap { display: flex; justify-content: center; margin: 22px 0 6px; }
 .view-all-wrap .btn { min-width: 240px; }
 .deals .dcard { content-visibility: visible; }
+
+/* ---------- desktop banner (the designed artwork, with live button + search) ---------- */
+.hero-banner { position: relative; width: 100vw; margin: -24px 0 34px calc(50% - 50vw); background: #f3effe; }
+.hero-banner > img { width: 100%; height: auto; display: block; }
+.hb-cta { position: absolute; left: 5.9%; top: 92%; transform: translateY(-50%); min-height: 0; height: 15.6%; max-height: 64px; padding: 0 2.2vw; font-size: clamp(14px, 1.35vw, 20px); border-radius: 999px; }
+.hb-search { position: absolute; left: 23.4%; width: 53.4%; bottom: 0; transform: translateY(50%); z-index: 5; }
+.hb-search .hsearch { box-shadow: 0 10px 30px rgba(42, 22, 112, .18); }
+@media (max-width: 899px) { .hero-banner { display: none; } }
+@media (min-width: 980px) and (max-width: 1199px) {
+  .login-pill { padding: 0 12px; }
+  .login-pill span { display: none; }
+  .mainnav { margin-left: 8px; }
+  .mainnav a, .mainnav button { padding: 8px 9px; }
+}
