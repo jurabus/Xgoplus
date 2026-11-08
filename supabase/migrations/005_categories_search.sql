@@ -94,7 +94,6 @@ create or replace function public.search_providers(
 ) returns table (id uuid, name text, image_path text, discount_percent numeric, category_id uuid)
 language plpgsql stable security definer
 set search_path = ''
-set pg_trgm.word_similarity_threshold = 0.4
 as $$
 declare
   v_q text := private.norm(left(coalesce(p_q, ''), 60));
@@ -109,7 +108,7 @@ begin
       and (p_category is null or p.category_id = p_category)
       and (
         p.search_name like '%' || v_q || '%'
-        or v_q operator(extensions.<%) p.search_name
+        or extensions.word_similarity(v_q, p.search_name) >= 0.4
         or (length(v_q) >= 3 and c.search_name like v_q || '%')
       )
     order by
