@@ -29,7 +29,7 @@ $P -d xg_e2e -c "grant anon, authenticated, service_role to authenticator; creat
   GOTRUE_MAILER_AUTOCONFIRM=true GOTRUE_EXTERNAL_EMAIL_ENABLED=true GOTRUE_DISABLE_SIGNUP=false \
   GOTRUE_EXTERNAL_PHONE_ENABLED=false GOTRUE_RATE_LIMIT_HEADER="" GOTRUE_RATE_LIMIT_TOKEN_REFRESH=10000 \
   GOTRUE_RATE_LIMIT_VERIFY=10000 GOTRUE_RATE_LIMIT_EMAIL_SENT=10000 GOTRUE_SECURITY_UPDATE_PASSWORD_REQUIRE_REAUTHENTICATION=false \
-  GOTRUE_LOG_LEVEL=warn setsid nohup "$BIN/auth" < /dev/null > /home/claude/e2e/auth.log 2>&1 & )
+  GOTRUE_MFA_TOTP_ENROLL_ENABLED=true GOTRUE_MFA_TOTP_VERIFY_ENABLED=true GOTRUE_MFA_MAX_ENROLLED_FACTORS=10 GOTRUE_LOG_LEVEL=warn setsid nohup "$BIN/auth" < /dev/null > /home/claude/e2e/auth.log 2>&1 & )
 for i in $(seq 1 60); do curl -sf http://127.0.0.1:9999/health >/dev/null && break; sleep 0.5; done
 curl -sf http://127.0.0.1:9999/health >/dev/null || { tail -20 /home/claude/e2e/auth.log; exit 1; }
 for f in "$ROOT/supabase/schema.sql" "$ROOT"/supabase/migrations/0*.sql; do $P -d xg_e2e -f "$f"; done

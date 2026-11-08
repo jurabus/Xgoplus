@@ -449,3 +449,37 @@ input[type=file] { max-width: 100%; font-size: 14px; }
 [dir="rtl"] .mcard li::before { left: auto; right: 0; }
 [dir="rtl"] .install li { padding: 8px 42px 8px 0; }
 [dir="rtl"] .install li::before { left: auto; right: 0; }
+
+/* ---------- payment flow (inside the dark membership card) ---------- */
+.pay-step { opacity: .85; margin-top: 6px; font-weight: 600; }
+.pay-methods { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 8px; }
+.pay-method { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 14px 8px; border-radius: 16px; border: 1px solid rgba(255, 255, 255, .25); background: rgba(255, 255, 255, .1); color: #fff; font-weight: 600; cursor: pointer; }
+.pay-method:hover { background: rgba(255, 255, 255, .18); }
+.pm-logo { display: inline-flex; align-items: center; justify-content: center; min-width: 92px; height: 40px; padding: 0 10px; border-radius: 10px; font-weight: 800; font-style: italic; letter-spacing: -.3px; }
+.instapay .pm-logo { background: #fff; color: #4b2a8a; }
+.vodafone .pm-logo { background: #e60000; color: #fff; }
+.pay-box { background: rgba(255, 255, 255, .12); border: 1px solid rgba(255, 255, 255, .2); border-radius: 16px; padding: 14px; }
+.pay-box svg { width: 20px; height: 20px; }
+.pay-value { flex: 1 1 100%; min-width: 0; font-size: 21px; font-weight: 800; letter-spacing: .3px; word-break: break-all; user-select: all; -webkit-user-select: all; }
+.pay-box .row { flex-wrap: wrap; }
+.pay-form label.field > span { color: #fff; }
+.pay-form .input { background: #fff; color: var(--ink); }
+.pay-file { display: flex; align-items: center; gap: 10px; padding: 12px; border-radius: 14px; border: 1px dashed rgba(255, 255, 255, .5); }
+.pay-file svg { width: 22px; height: 22px; }
+.pay-file input { color: #fff; }
+.pay-preview img { max-height: 200px; border-radius: 12px; margin-top: 8px; }
+.pay-note { border-radius: 14px; padding: 12px 14px; margin-bottom: 10px; }
+.pay-note.bad { background: rgba(255, 106, 61, .2); border: 1px solid rgba(255, 106, 61, .55); }
+.muted-on-dark { opacity: .8; margin-top: 6px; }
+.linklike { border: 0; background: none; color: inherit; text-decoration: underline; cursor: pointer; opacity: .85; width: 100%; padding: 6px; font-size: 14px; }
+.proof-img { width: 100%; max-height: 70vh; object-fit: contain; border-radius: 14px; background: #fff; }
+.pm-tag { display: inline-block; padding: 2px 8px; border-radius: 8px; font-size: 12px; font-weight: 700; }
+.pm-tag.instapay { background: #efe8ff; color: #4b2a8a; }
+.pm-tag.vodafone { background: #ffe5e5; color: #c00000; }
+.current-acc { box-shadow: inset 4px 0 0 var(--brand); }
+.denied { max-width: 440px; margin: 40px auto; text-align: center; }
+.denied svg { width: 64px; height: 64px; color: var(--bad); margin: 0 auto; }
+.mfa-qr { background: #fff; border-radius: 16px; padding: 12px; width: 220px; margin: 0 auto; }
+.mfa-secret { font-family: ui-monospace, Menlo, monospace; font-size: 13px; background: var(--brand-soft); padding: 8px 10px; border-radius: 10px; overflow-wrap: anywhere; }
+.otp { font-size: 26px; letter-spacing: 8px; text-align: center; font-weight: 700; }
+.warnbox { background: var(--warn-soft); color: #5a3900; border-radius: 14px; padding: 12px 14px; }

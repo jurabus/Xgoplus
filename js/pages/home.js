@@ -1,7 +1,7 @@
 // Home: hero, search + area, category strip, banners, Top Deals, membership promo.
 import {
   sb, shell, S, h, $, clear, mediaUrl, icon, logoSVG, loadCategories, catIcon, svgPath, CAT_ICONS,
-  providerCard, PROVIDER_COLS, getArea, moduleOn,
+  providerCard, selectProviders, getArea, moduleOn,
 } from '../common.js';
 import { mountSearch } from '../search.js';
 
@@ -46,11 +46,13 @@ async function banners() {
 }
 
 async function topDeals() {
-  let q = sb.from('providers').select(PROVIDER_COLS).eq('is_active', true)
-    .order('discount_percent', { ascending: false }).order('sort_order').order('name').limit(12);
   const area = getArea();
-  if (area) q = q.eq('area_id', area);
-  const { data } = await q;
+  const { data } = await selectProviders((cols, withAreas) => {
+    let q = sb.from('providers').select(cols).eq('is_active', true)
+      .order('discount_percent', { ascending: false }).order('sort_order').order('name').limit(12);
+    if (area && withAreas) q = q.eq('area_id', area);
+    return q;
+  });
   const words = String(S('top_deals_title')).split(' ');
   const head = h('div', { class: 'sec-head' },
     h('h2', {}, icon('fire', 'fire'), words[0], words.length > 1 ? [' ', h('em', { text: words.slice(1).join(' ') })] : null),

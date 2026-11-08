@@ -12,12 +12,13 @@ const GROUPS = [
   ['Navigation', /^nav_/],
   ['Log in & sign up', /^(login_|signup_|phone_|password_|first_name|last_name)/],
   ['Membership', /^(membership_|qr_)/],
+  ['Payment (InstaPay / Vodafone Cash)', /^pay_/],
   ['Partner portal & scanner', /^(partner_|username_|scan_|limits_)/],
   ['Usage rules', /^(rules_|rule_|period_|day_|usage_)/],
   ['History, password, reports', /^(history_|password_|current_password|new_password|report_|my_reports|complaint_|status_|nav_report|nav_history)/],
   ['Filters', /^discount_/],
 ];
-const SKIP = new Set(['app_disabled_modules']);
+const SKIP = new Set(['app_disabled_modules', 'membership_free', 'membership_price_egp', 'membership_renew_window_days']);
 const label = (k) => k.replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase());
 
 export async function render(root) {

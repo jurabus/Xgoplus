@@ -6,8 +6,13 @@ async function main() {
   clear(app);
   const id = param('id') || '';
   const { data: p } = /^[0-9a-f-]{36}$/i.test(id)
-    ? await sb.from('providers').select('id,name,image_path,discount_percent,notes,limit_count,limit_period,allowed_days,area:areas(name),category:categories(name,icon)')
-      .eq('id', id).eq('is_active', true).maybeSingle()
+    ? await (async () => {
+      const full = await sb.from('providers').select('id,name,image_path,discount_percent,notes,limit_count,limit_period,allowed_days,area:areas(name),category:categories(name,icon)')
+        .eq('id', id).eq('is_active', true).maybeSingle();
+      if (!full.error) return full;
+      console.warn('Partner page fallback:', full.error.message);   // an update (006/007) is missing in the database
+      return sb.from('providers').select('id,name,image_path,discount_percent,notes').eq('id', id).eq('is_active', true).maybeSingle();
+    })()
     : { data: null };
   if (!p) {
     app.append(h('div', { class: 'empty' }, h('p', { text: 'This partner is not available.' }), h('a', { class: 'btn ghost', href: 'offers.html', text: S('nav_offers') })));

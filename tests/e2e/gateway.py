@@ -104,6 +104,7 @@ class H(BaseHTTPRequestHandler):
         conn = http.client.HTTPConnection("127.0.0.1", port, timeout=30)
         hdrs = {k: v for k, v in self.headers.items() if k.lower() not in ("host", "authorization", "content-length", "connection")}
         hdrs["Authorization"] = "Bearer " + self.auth_token()
+        hdrs["X-Forwarded-For"] = self.client_ip()
         if data:
             hdrs["Content-Length"] = str(len(data))
         conn.request(self.command, path, body=data or None, headers=hdrs)
@@ -118,28 +119,68 @@ class H(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(out)
 
+    def client_ip(self):
+        return (self.headers.get("X-Test-Client-IP") or self.headers.get("X-Forwarded-For") or "127.0.0.1").split(",")[0].strip()
+
+    def db_as(self, claims):
+        c = psycopg.connect(DSN, autocommit=True)
+        return c
+
     def storage(self):
-        path = self.path.split("?")[0][len("/storage/v1/"):]
+        from urllib.parse import unquote, urlparse, parse_qs
+        raw = urlparse(self.path)
+        path = unquote(raw.path[len("/storage/v1/"):])
         if self.command in ("GET", "HEAD") and path.startswith("object/public/"):
             bucket, _, name = path[len("object/public/"):].partition("/")
+            with psycopg.connect(DSN, autocommit=True) as c:
+                pub = c.execute("select public from storage.buckets where id=%s", (bucket,)).fetchone()
             obj = OBJECTS.get((bucket, name))
-            if not obj:
-                return self.reply(404, {"error": "not_found"})
+            if not obj or not pub or not pub[0]:
+                return self.reply(404 if not obj else 400, {"error": "not_found"})
+            return self.reply(200, obj[1], obj[0])
+        if self.command == "GET" and path.startswith("object/sign/"):
+            bucket, _, name = path[len("object/sign/"):].partition("/")
+            tok = (parse_qs(raw.query).get("token") or [""])[0]
+            try:
+                exp, sig = tok.split(".")
+                good = hmac.compare_digest(sig, hmac.new(SECRET, f"{bucket}/{name}|{exp}".encode(), hashlib.sha256).hexdigest()) and int(exp) > time.time()
+            except ValueError:
+                good = False
+            obj = OBJECTS.get((bucket, name))
+            if not good or not obj:
+                return self.reply(400, {"error": "invalid signature"})
             return self.reply(200, obj[1], obj[0])
         claims = verify_jwt(self.auth_token())
         if not claims:
             return self.reply(401, {"error": "invalid jwt"})
         role = claims.get("role", "anon")
+        hdr = json.dumps({"x-forwarded-for": self.client_ip()})
+        if self.command == "POST" and path.startswith("object/sign/"):
+            bucket, _, name = path[len("object/sign/"):].partition("/")
+            exp_in = int(json.loads(self.body() or b"{}").get("expiresIn", 60))
+            with psycopg.connect(DSN, autocommit=True) as c, c.transaction():
+                c.execute("select set_config('request.jwt.claims', %s, true), set_config('request.headers', %s, true)", (json.dumps(claims), hdr))
+                c.execute(f"set local role {'authenticated' if role == 'authenticated' else 'anon'}")
+                found = c.execute("select 1 from storage.objects where bucket_id=%s and name=%s", (bucket, name)).fetchone()
+            if not found:
+                return self.reply(400, {"statusCode": "404", "error": "not_found", "message": "Object not found"})
+            exp = int(time.time()) + exp_in
+            sig = hmac.new(SECRET, f"{bucket}/{name}|{exp}".encode(), hashlib.sha256).hexdigest()
+            return self.reply(200, {"signedURL": f"/object/sign/{bucket}/{name}?token={exp}.{sig}"})
         if self.command in ("POST", "PUT") and path.startswith("object/"):
             bucket, _, name = path[len("object/"):].partition("/")
             ctype, data = extract_file(self.headers.get("Content-Type", ""), self.body())
             if len(data) > 2097152:
                 return self.reply(413, {"error": "too large", "message": "The object exceeded the maximum allowed size"})
+            with psycopg.connect(DSN, autocommit=True) as c:
+                lim = c.execute("select file_size_limit from storage.buckets where id=%s", (bucket,)).fetchone()
+            if lim and lim[0] and len(data) > lim[0]:
+                return self.reply(413, {"error": "too large", "message": "The object exceeded the maximum allowed size"})
             if ctype not in ("image/jpeg", "image/png", "image/webp"):
                 return self.reply(415, {"error": "mime", "message": f"mime type {ctype} is not supported"})
             try:
                 with psycopg.connect(DSN, autocommit=True) as c, c.transaction():
-                    c.execute("select set_config('request.jwt.claims', %s, true)", (json.dumps(claims),))
+                    c.execute("select set_config('request.jwt.claims', %s, true), set_config('request.headers', %s, true)", (json.dumps(claims), hdr))
                     c.execute(f"set local role {'authenticated' if role == 'authenticated' else 'anon'}")
                     c.execute("""insert into storage.objects (bucket_id, name, owner) values (%s, %s, %s)
                                  on conflict (bucket_id, name) do update set updated_at = now()""",
@@ -156,7 +197,7 @@ class H(BaseHTTPRequestHandler):
             with psycopg.connect(DSN, autocommit=True) as c:
                 for n in names:
                     with c.transaction():
-                        c.execute("select set_config('request.jwt.claims', %s, true)", (json.dumps(claims),))
+                        c.execute("select set_config('request.jwt.claims', %s, true), set_config('request.headers', %s, true)", (json.dumps(claims), hdr))
                         c.execute("set local role authenticated")
                         cur = c.execute("delete from storage.objects where bucket_id=%s and name=%s returning name", (bucket, n))
                         if cur.fetchone():
