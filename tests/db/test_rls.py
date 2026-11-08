@@ -742,6 +742,26 @@ def main():
     ok(A, "update public.settings set data = data || '{\"payment_mode\": \"free\"}'")
     check("schema 009", ok(G, "select public.schema_status()->>'m009'")[0][0] == "true")
 
+    # ------------------------------------------------------------ 010: home feed
+    f = ok(G, "select public.home_feed(null, 10, 5, 10)")[0][0]
+    tops = f["top"]
+    n_active = ok(None, "select count(*) from public.providers where is_active")[0][0]
+    check("top: up to 10 deals", len(tops) == min(10, n_active), f"{len(tops)} of {n_active}")
+    cat_of = {str(r[0]): r[1] for r in ok(None, "select id, category_id from public.providers")}
+    first_cats = [cat_of[t["id"]] or t["id"] for t in tops[:3]]
+    check("top: spread across categories", len(set(first_cats)) == 3, str(first_cats))
+    best = ok(None, "select max(discount_percent) from public.providers where is_active")[0][0]
+    check("top: includes the best deal", any(float(t["discount_percent"]) == float(best) for t in tops))
+    check("rows: <= 5 categories, <= 10 each, sorted", len(f["rows"]) <= 5 and all(len(r["items"]) <= 10 for r in f["rows"])
+          and all([float(i["discount_percent"]) for i in r["items"]] == sorted([float(i["discount_percent"]) for i in r["items"]], reverse=True) for r in f["rows"]))
+    check("rows: only active, no private fields", "username" not in json.dumps(f) and "user_id" not in json.dumps(f))
+    octo2 = ok(None, "select id from public.areas where name='6th of October'")[0][0]
+    fa = ok(G, "select public.home_feed(%s, 10, 5, 10)", (octo2,))[0][0]
+    names_in_area = {r[0] for r in ok(None, "select name from public.providers where area_id=%s and is_active", (octo2,))}
+    check("area filter", all(t["name"] in names_in_area for t in fa["top"]) and all(i["name"] in names_in_area for r in fa["rows"] for i in r["items"]))
+    check("limits capped", len(ok(G, "select public.home_feed(null, 500, 50, 500)")[0][0]["top"]) <= 20)
+    check("schema 010", ok(G, "select public.schema_status()->>'m010'")[0][0] == "true")
+
     # ------------------------------------------------------------ performance (~20k rows)
     t = time.time()
     ok(None, """
@@ -788,6 +808,8 @@ def main():
     timed("admin pending requests", A, "select * from public.admin_list_requests('pending', 30, 0)")
     timed("payment options", G, "select public.payment_options()")
     timed("is_admin check", A, "select public.is_admin()")
+    timed("home feed (20k providers)", G, "select public.home_feed(null, 10, 5, 10)", limit_ms=250)
+    timed("home feed in area", G, "select public.home_feed((select id from public.areas limit 1), 10, 5, 10)", limit_ms=250)
     timed("customer context", c1, "select public.get_my_context()")
     timed("customer QR", c1, "select public.get_member_qr()")
     timed("provider scan", p1u, "select public.verify_member_qr(%s)", (ok(c1, "select public.get_member_qr()->>'token'")[0][0],))

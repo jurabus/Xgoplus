@@ -65,13 +65,14 @@ Web app only (no native iOS/Android app).
 9. `migrations/009_trial_session_paylink.sql` — partners can't edit discount/limits (admin only), free trial (1 scan per
    account), one active session per customer (`claim_session()` revokes others; QR tokens bound to the active session),
    InstaPay payment links (`ipn.eg`) for the "Pay in InstaPay app" button
+10. `migrations/010_home_feed.sql` — `home_feed()`: top 10 deals spread across categories + up to 5 category rows of 10
 
 `supabase/setup_all.sql` = all of the above in one file (regenerate with `tools/gen-setup-all.sh`).
 
 ## Tests
 
 ```sh
-python3 -I tests/db/test_rls.py     # 337 database checks incl. 20k-row performance
+python3 -I tests/db/test_rls.py     # 347 database checks incl. 20k-row performance
 tests/e2e/run.sh                    # full UI run, screenshots of every screen
 ```
 

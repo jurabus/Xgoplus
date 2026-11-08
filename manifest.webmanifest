@@ -1,6 +1,6 @@
 {
-  "name": "XGo Plus",
-  "short_name": "XGo Plus",
+  "name": "XGo+",
+  "short_name": "XGo+",
   "description": "Member discounts at partner businesses",
   "start_url": "/index.html?source=pwa",
   "scope": "/",

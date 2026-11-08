@@ -302,8 +302,14 @@ def main():
         g.wait_for_selector(".deals .dcard")
         expect(g.locator(".hero-title")).to_contain_text("More Savings.")
         expect(g.locator(".catbar .cat")).to_have_count(7)
-        offs = [float(t.split("%")[0]) for t in g.locator(".deals .dcard .off").all_text_contents()]
-        assert offs == sorted(offs, reverse=True) and len(offs) == 12, offs
+        offs = [float(t.split("%")[0]) for t in g.locator(".deals").first.locator(".dcard .off").all_text_contents()]
+        assert len(offs) == 10 and max(offs) == float(sql("select max(discount_percent) from public.providers where is_active")), offs
+        rows = g.locator(".cat-row").count()
+        assert 1 <= rows <= 5, rows
+        for i in range(rows):
+            assert g.locator(".cat-row").nth(i).locator(".dcard").count() <= 10
+        expect(g.locator(".view-all-wrap a")).to_have_attribute("href", "offers.html")
+        assert g.locator("main >> text=null").count() == 0
         shot(g, "10-guest-home", full=False)
         shot(g, "10b-guest-home-full")
         g.click(".catbar .cat >> nth=0")
@@ -363,7 +369,7 @@ def main():
         g.click(".area-opt:has-text('Sheikh Zayed')")
         g.wait_for_selector(".deals .dcard, main .empty")
         g.wait_for_timeout(600)
-        names = g.locator(".deals .dcard .name").all_text_contents()
+        names = g.locator(".deals").first.locator(".dcard .name").all_text_contents()
         assert names == ["Cafe Aroma"], names
         expect(g.locator(".site-head .area-pill")).to_contain_text("Sheikh Zayed")
         shot(g, "12c-home-area-zayed", full=False)
@@ -437,6 +443,12 @@ def main():
         c2.click("main button[type=submit]")
         expect(c2.locator(".form-error")).not_to_be_empty()
         c2.goto(SITE + "/login.html")
+        c2.fill("input[type=password]", "peekaboo1")
+        c2.click(".pw-eye")
+        expect(c2.locator(".pw-wrap input")).to_have_attribute("type", "text")
+        shot(c2, "24b-login-show-password", full=False)
+        c2.click(".pw-eye")
+        expect(c2.locator(".pw-wrap input")).to_have_attribute("type", "password")
         c2.fill("input[type=tel]", "01001112222"); c2.fill("input[type=password]", "wrongpass1")
         c2.click("main button[type=submit]")
         expect(c2.locator(".form-error")).to_contain_text("Wrong phone")
@@ -486,7 +498,7 @@ def main():
         p.wait_for_selector("h1:has-text(\"My business\")")
         # discount + limits are admin-only now: partner sees them read-only
         expect(p.locator(".locked")).to_contain_text("15%")
-        expect(p.locator(".locked")).to_contain_text("set by XGo Plus")
+        expect(p.locator(".locked")).to_contain_text("set by XGo+")
         assert p.locator("main input[type=number]").count() == 0
         r = p.evaluate("""async () => { const m = await import('/js/common.js');
             const { data: c } = await m.sb.rpc('get_my_context');
@@ -744,6 +756,7 @@ def main():
         bt.close()
         tr.reload(); tr.wait_for_selector(".mcard")
         expect(tr.locator(".mcard")).to_contain_text("free trial has been used")
+        assert "null" not in tr.locator("main").inner_text(), tr.locator("main").inner_text()[:200]
         assert tr.locator(".trial-card").count() == 0
 
         # ---------------- one session per account: logging in elsewhere signs out this phone ----------------

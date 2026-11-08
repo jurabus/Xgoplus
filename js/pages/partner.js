@@ -271,7 +271,7 @@ function route() {
 async function main() {
   ctx = await shell('scan', { searchBar: false });
   if (ctx.role !== 'provider') {
-    if (ctx.role === 'customer') { clear(app).append(h('div', { class: 'card stack' }, h('p', { text: hasPendingToken() ? 'This is an XGo Plus membership code. Only partner businesses can check it.' : 'You are logged in as a customer. Log out to sign in as a partner.' }), h('button', { class: 'btn', type: 'button', text: 'Log out', onclick: () => logout('partner.html') }))); return; }
+    if (ctx.role === 'customer') { clear(app).append(h('div', { class: 'card stack' }, h('p', { text: hasPendingToken() ? 'This is an XGo+ membership code. Only partner businesses can check it.' : 'You are logged in as a customer. Log out to sign in as a partner.' }), h('button', { class: 'btn', type: 'button', text: 'Log out', onclick: () => logout('partner.html') }))); return; }
     loginView();
     return;
   }

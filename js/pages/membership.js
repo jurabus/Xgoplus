@@ -206,7 +206,8 @@ async function main() {
       trialBox = h('div', { class: 'card stack trial-card' }, h('span', { class: 'trial-badge', text: S('trial_badge') }),
         h('h2', { text: S('trial_title') }), h('p', { class: 'muted', text: S('trial_text') }), go);
     }
-    app.append(trialBox, h('div', { class: 'mcard' }, h('div', { class: 'mlogo' }, logoSVG()), priceBlock(), benefits(),
+    if (trialBox) app.append(trialBox);
+    app.append(h('div', { class: 'mcard' }, h('div', { class: 'mlogo' }, logoSVG()), priceBlock(), benefits(),
       trial === 'used' ? h('p', { class: 'pay-note bad small', text: S('trial_used') }) : null, actionSlot));
     return;
   }
