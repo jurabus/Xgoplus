@@ -52,18 +52,32 @@ def setup_db():
 conn = None
 
 
+AAL2 = set()          # users whose session passed 2FA
+IP_OVERRIDE = {}      # who -> ip
+
+
+def ip_for(who):
+    if who in IP_OVERRIDE:
+        return IP_OVERRIDE[who]
+    if who in AAL2:
+        return "10.0.0.1"
+    h = abs(hash(str(who))) % 250 + 2
+    return f"10.9.{h}.{h}"
+
+
 def run(who, sql, params=None, fetch=True):
     """Execute as a given identity. who = None (superuser), 'anon', or a user uuid.
     Returns (rows, error_message)."""
     try:
         with conn.transaction():
             with conn.cursor() as cur:
+                cur.execute("select set_config('request.headers', %s, true)", (json.dumps({"x-forwarded-for": f"{ip_for(who)}, 172.16.0.1"}),))
                 if who == "anon":
                     cur.execute("select set_config('request.jwt.claims', %s, true)", (json.dumps({"role": "anon"}),))
                     cur.execute("set local role anon")
                 elif who is not None:
                     cur.execute("select set_config('request.jwt.claims', %s, true)",
-                                (json.dumps({"sub": str(who), "role": "authenticated"}),))
+                                (json.dumps({"sub": str(who), "role": "authenticated", **({"aal": "aal2"} if who in AAL2 else {"aal": "aal1"})}),))
                     cur.execute("set local role authenticated")
                 cur.execute(sql, params)
                 rows = cur.fetchall() if (fetch and cur.description) else []
@@ -82,6 +96,9 @@ def ok(who, sql, params=None):
 def denied(name, who, sql, params=None, contains=None):
     rows, err = run(who, sql, params)
     good = err is not None and (contains is None or contains in err)
+    # admin RPCs don't raise for outsiders (so the attempt can be logged): they return nothing
+    if err is None and contains is None and "admin_" in sql and rows in ([], [(None,)], [("",)]):
+        good = True
     check(name, good, f"expected error{' ~'+contains if contains else ''}, got rows={rows} err={err}")
 
 
@@ -106,6 +123,7 @@ def main():
     admin = uuid.uuid4()
     ok(None, "insert into auth.users (id, email, aud, role) values (%s, 'owner@gmail.com', 'authenticated', 'authenticated')", (admin,))
     ok(None, "insert into public.admins (user_id) values (%s)", (admin,))
+    AAL2.add(admin)
     c1, e = signup("201001112222", "Ahmed", "Mostafa"); assert not e, e
     c2, e = signup("201203334444", "Mona", "Samir"); assert not e, e
     stranger = uuid.uuid4()  # authenticated but no role (e.g. random API sign-up)
@@ -500,6 +518,142 @@ def main():
     rs = ok(None, "select extract(dow from (%s::timestamptz at time zone 'Africa/Cairo'))::int, (%s::timestamptz at time zone 'Africa/Cairo')::time::text", (u["resets_at"], u["resets_at"]))[0]
     check("weekly reset is Sunday 00:00 Cairo", rs == (0, "00:00:00"), str(rs))
 
+    # ------------------------------------------------------------ 008: admin security
+    check("schema status", ok(G, "select public.schema_status()")[0][0]["m008"] is True)
+    AAL2.discard(A)
+    check("admin without 2FA is not admin", ok(A, "select public.is_admin()")[0][0] is False
+          and ok(A, "select public.get_my_context()->>'role'")[0][0] == "none")
+    g = ok(A, "select public.admin_gate()")[0][0]
+    check("gate: listed admin at aal1", g == {"banned": False, "listed": True, "aal": "aal1"}, str(g))
+    AAL2.add(A)
+    check("admin with 2FA is admin", ok(A, "select public.is_admin()")[0][0] is True)
+    # anonymous probing of admin RPCs -> ban
+    IP_OVERRIDE["anon"] = "203.0.113.7"
+    for _ in range(5):
+        run(G, "select public.admin_stats()")
+    check("anon probes get banned", ok(G, "select public.admin_gate()")[0][0] == {"banned": True})
+    # brute-force reports
+    IP_OVERRIDE["anon"] = "203.0.113.8"
+    for _ in range(9):
+        ok(G, "select public.report_admin_failure('password', 'owner@gmail.com')")
+    check("9 bad passwords not yet banned", ok(G, "select public.admin_gate()->>'banned'")[0][0] == "false")
+    ok(G, "select public.report_admin_failure('password', 'owner@gmail.com')")
+    check("10 bad passwords -> banned", ok(G, "select public.admin_gate()->>'banned'")[0][0] == "true")
+    # non-admin account logging into admin page
+    IP_OVERRIDE[c3] = "203.0.113.9"
+    for _ in range(3):
+        ok(c3, "select public.admin_gate()")
+    check("non-admin on admin page -> banned", ok(c3, "select public.admin_gate()->>'banned'")[0][0] == "true")
+    # admin from banned IP loses admin
+    IP_OVERRIDE[A] = "203.0.113.9"
+    check("admin from banned IP is not admin", ok(A, "select public.is_admin()")[0][0] is False)
+    check("admin from banned IP gets no data", ok(A, "select public.admin_stats()")[0][0] is None)
+    del IP_OVERRIDE[A]
+    sec = ok(A, "select public.admin_security_overview()")[0][0]
+    bans = {b["ip"] for b in sec["bans"]}
+    check("admin sees bans + events", {"203.0.113.7", "203.0.113.8", "203.0.113.9"} <= bans and len(sec["events"]) > 10 and sec["my_ip"] == "10.0.0.1", str(bans))
+    check("events show the account email", any(e.get("email") for e in sec["events"]))
+    denied("admin cannot ban own IP", A, "select public.admin_ban_ip('10.0.0.1', 1, 'x')", contains="cannot_ban_self")
+    ok(A, "select public.admin_unban_ip('203.0.113.8')")
+    IP_OVERRIDE["anon"] = "203.0.113.8"
+    check("unbanned", ok(G, "select public.admin_gate()->>'banned'")[0][0] == "false")
+    ok(G, "select public.report_admin_failure('password', 'x')")
+    check("unban resets score", ok(G, "select public.admin_gate()->>'banned'")[0][0] == "false")
+    ok(A, "select public.admin_ban_ip('198.51.100.4', 7, 'manual test')")
+    check("manual ban", ok(None, "select private.ip_banned('198.51.100.4')")[0][0] is True)
+    rep = ok(None, "select expires_at > now() + interval '6 days' from private.ip_bans where ip='198.51.100.4'")[0][0]
+    check("manual ban length", rep is True)
+    IP_OVERRIDE["anon"] = "unknown-ip"  # header missing -> 'unknown' never banned
+    ok(None, "select 1")
+    for t in ("security_events", "ip_bans", "payment_counters"):
+        denied(f"private.{t} not readable", c1, f"select * from private.{t}")
+    # repeat offender: second ban within 30 days lasts 30 days
+    IP_OVERRIDE["anon"] = "203.0.113.20"
+    for _ in range(10): ok(G, "select public.report_admin_failure('password', 'x')")
+    ok(None, "update private.ip_bans set expires_at = now() - interval '1 minute' where ip='203.0.113.20'")
+    ok(None, "delete from private.security_events where ip='203.0.113.20'")
+    for _ in range(10): ok(G, "select public.report_admin_failure('password', 'x')")
+    check("repeat offender banned 30 days", ok(None, "select expires_at > now() + interval '29 days' from private.ip_bans where ip='203.0.113.20'")[0][0] is True)
+    IP_OVERRIDE.pop("anon", None)
+
+    # ------------------------------------------------------------ 008: payments
+    ok(A, "update public.settings set data = data || '{\"payment_mode\": \"inactive\"}'")
+    check("payment options inactive", ok(G, "select public.payment_options()->>'mode'")[0][0] == "inactive")
+    c7, _ = signup("201550007777", "Pay", "One"); c8, _ = signup("201550008888", "Pay", "Two"); c9, _ = signup("201550009999", "Pay", "Three")
+    denied("inactive: no free subscribe", c7, "select public.subscribe_membership()", contains="payment_required")
+    denied("inactive: no payment start", c7, "select public.start_membership_payment('instapay')", contains="payments_unavailable")
+    ok(A, "update public.settings set data = data || '{\"payment_mode\": \"active\", \"payment_rotate_every\": 2, \"membership_price_egp\": 199}'")
+    denied("active: free subscribe blocked", c7, "select public.subscribe_membership()", contains="payment_required")
+    denied("no accounts yet", c7, "select public.start_membership_payment('instapay')", contains="method_unavailable")
+    denied("bad method", c7, "select public.start_membership_payment('cash')", contains="method_unavailable")
+    denied("customer cannot add account", c7, "insert into public.payment_accounts (method, value) values ('instapay', 'me@instapay')")
+    acc = {}
+    for m, v, so in (("instapay", "xgo.one@instapay", 1), ("instapay", "xgo.two@instapay", 2), ("vodafone", "0100 123 4567", 1)):
+        acc[v] = ok(A, "insert into public.payment_accounts (method, value, sort_order) values (%s, %s, %s) returning id, value", (m, v, so))[0]
+    check("vodafone number normalized", acc["0100 123 4567"][1] == "01001234567")
+    denied("invalid wallet number", A, "insert into public.payment_accounts (method, value) values ('vodafone', '12345')", contains="invalid_wallet_number")
+    check("customer cannot list accounts", ok(c7, "select * from public.payment_accounts") == [])
+    denied("guest cannot list accounts", G, "select * from public.payment_accounts")
+    opts = ok(G, "select public.payment_options()")[0][0]
+    check("options: methods but no numbers", sorted(opts["methods"]) == ["instapay", "vodafone"] and "xgo" not in json.dumps(opts), str(opts))
+    def start(uid, m):
+        return ok(uid, "select public.start_membership_payment(%s)", (m,))[0][0]
+    def proof(uid, req, ext="webp", tag="abcd"):
+        path = f"{uid}/{req}-{tag}.{ext}"
+        ok(uid, "insert into storage.objects (bucket_id, name, owner) values ('proofs', %s, %s)", (path, uid))
+        return path
+    r7 = start(c7, "instapay")
+    check("first request -> first account + server price", r7["account_value"] == "xgo.one@instapay" and float(r7["amount"]) == 199, str(r7))
+    r7b = start(c7, "vodafone")
+    check("switching method reuses the draft", r7b["request_id"] == r7["request_id"] and r7b["account_value"] == "01001234567")
+    r7 = start(c7, "instapay")
+    denied("submit without proof", c7, "select public.submit_membership_request(%s, %s, '')", (r7["request_id"], f"{c7}/{r7['request_id']}-zzzz.webp"), contains="proof_required")
+    denied("proof upload into another user's folder", c7, "insert into storage.objects (bucket_id, name) values ('proofs', %s)", (f"{c8}/x-abcd.webp",))
+    denied("provider cannot upload proofs", p1u, "insert into storage.objects (bucket_id, name) values ('proofs', %s)", (f"{p1u}/x-abcd.webp",))
+    denied("guest cannot upload proofs", G, "insert into storage.objects (bucket_id, name) values ('proofs', 'x/y-abcd.webp')")
+    pth = proof(c7, r7["request_id"])
+    denied("cannot submit someone else's draft", c8, "select public.submit_membership_request(%s, %s, '')", (r7["request_id"], pth), contains="not_found")
+    ok(c7, "select public.submit_membership_request(%s, %s, %s)", (r7["request_id"], pth, "Pay One <b>CIB</b>"))
+    st = ok(c7, "select public.my_membership_request()")[0][0]
+    check("request pending", st["status"] == "pending" and st["method"] == "instapay", str(st))
+    check("sender info sanitized", ok(None, "select sender_info from public.membership_requests where id=%s", (r7["request_id"],))[0][0] == "Pay One bCIB/b")
+    denied("second request while pending", c7, "select public.start_membership_payment('vodafone')", contains="request_pending")
+    denied("customer cannot read requests table", c7, "select * from public.membership_requests")
+    check("proof private to owner", ok(c8, "select count(*) from storage.objects where bucket_id='proofs'")[0][0] == 0
+          and ok(c7, "select count(*) from storage.objects where bucket_id='proofs'")[0][0] == 1
+          and ok(A, "select count(*) from storage.objects where bucket_id='proofs'")[0][0] == 1)
+    r8 = start(c8, "instapay")
+    check("rotation: 2nd request same account (every 2)", r8["account_value"] == "xgo.one@instapay", str(r8))
+    ok(c8, "select public.submit_membership_request(%s, %s, '')", (r8["request_id"], proof(c8, r8["request_id"], "jpg")))
+    r9 = start(c9, "instapay")
+    check("rotation: 3rd request rolls to next account", r9["account_value"] == "xgo.two@instapay", str(r9))
+    ov = ok(A, "select public.admin_payment_overview()")[0][0]
+    check("overview counters + current", ov["counters"]["instapay"] == 2 and ov["current"]["instapay"] == str(acc["xgo.two@instapay"][0]) and ov["pending"] == 2, str(ov))
+    check("uses_count", ok(A, "select uses_count from public.payment_accounts where value='xgo.one@instapay'")[0][0] == 2)
+    ok(c9, "select public.cancel_membership_request()")
+    check("cancel draft", ok(c9, "select public.my_membership_request()")[0][0] is None)
+    reqs = ok(A, "select id, member_phone, status, member_status from public.admin_list_requests('pending', 10, 0)")
+    check("admin lists pending oldest first", [r[1] for r in reqs] == ["201550007777", "201550008888"] and reqs[0][3] == "none", str(reqs))
+    check("drafts hidden from admin", all(r[2] != "draft" for r in ok(A, "select id, member_phone, status from public.admin_list_requests('', 50, 0)")))
+    denied("customer cannot decide", c7, "select public.admin_decide_request(%s, true, '')", (r7["request_id"],))
+    check("still pending after customer attempt", ok(None, "select status from public.membership_requests where id=%s", (r7["request_id"],))[0][0] == "pending")
+    st = ok(A, "select public.admin_decide_request(%s, true, 'Thanks')", (r7["request_id"],))[0][0]
+    check("approve activates membership", st["status"] == "active", str(st))
+    m7 = ok(None, "select source, paid_egp, list_price_egp, extract(day from expires_at - now()) from public.memberships where user_id=%s", (c7,))[0]
+    check("membership from payment", m7[0] == "payment" and m7[1] == 199 and 363 <= m7[3] <= 366, str(m7))
+    denied("cannot decide twice", A, "select public.admin_decide_request(%s, false, '')", (r7["request_id"],), contains="already_decided")
+    ok(A, "select public.admin_decide_request(%s, false, 'Screenshot unclear')", (r8["request_id"],))
+    st = ok(c8, "select public.my_membership_request()")[0][0]
+    check("rejected visible with note", st["status"] == "rejected" and st["admin_note"] == "Screenshot unclear", str(st))
+    check("rejected user has no membership", ok(c8, "select public.get_my_context()->'membership'->>'status'")[0][0] == "none")
+    r8b = start(c8, "vodafone")
+    check("rejected user can try again", r8b["account_value"] == "01001234567")
+    denied("active member cannot pay again early", c7, "select public.start_membership_payment('instapay')", contains="already_active")
+    check("admin stats pending", ok(A, "select public.admin_stats()->>'requests_pending'")[0][0] == "0")
+    ok(A, "update public.settings set data = data || '{\"payment_mode\": \"free\"}'")
+    denied("free mode: no paid requests", c9, "select public.start_membership_payment('instapay')", contains="payments_unavailable")
+    ok(c9, "select public.subscribe_membership()")
+
     # ------------------------------------------------------------ performance (~20k rows)
     t = time.time()
     ok(None, """
@@ -543,6 +697,9 @@ def main():
     timed("search with min discount", G, "select * from public.search_providers('provider', null, 20, 0, 30)")
     timed("search in area", G, "select * from public.search_providers('provider', null, 20, 0, null, (select id from public.areas limit 1))")
     timed("top deals in area", G, "select id,name,discount_percent from public.providers where is_active and area_id=(select id from public.areas limit 1) order by discount_percent desc limit 12")
+    timed("admin pending requests", A, "select * from public.admin_list_requests('pending', 30, 0)")
+    timed("payment options", G, "select public.payment_options()")
+    timed("is_admin check", A, "select public.is_admin()")
     timed("customer context", c1, "select public.get_my_context()")
     timed("customer QR", c1, "select public.get_member_qr()")
     timed("provider scan", p1u, "select public.verify_member_qr(%s)", (ok(c1, "select public.get_member_qr()->>'token'")[0][0],))

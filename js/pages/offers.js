@@ -1,6 +1,6 @@
 // All offers: category chips, minimum discount, area (from header), infinite grid.
 import {
-  sb, shell, S, h, $, param, loadCategories, categoryChips, infiniteGrid, discountSelect, PROVIDER_COLS, getArea, currentArea,
+  sb, shell, S, h, $, param, loadCategories, categoryChips, infiniteGrid, discountSelect, selectProviders, getArea, currentArea,
 } from '../common.js';
 
 const PAGE = 24;
@@ -24,12 +24,14 @@ async function main() {
   currentArea().then((a) => { if (a) sub.textContent = `${S('tagline')} · ${a.name}`; });
 
   const list = infiniteGrid(grid, more, async (offset) => {
-    let q = sb.from('providers').select(PROVIDER_COLS)
-      .eq('is_active', true).order('sort_order').order('name').order('id').range(offset, offset + PAGE - 1);
-    if (cat) q = q.eq('category_id', cat);
-    if (minDisc) q = q.gte('discount_percent', minDisc);
-    if (area) q = q.eq('area_id', area);
-    const { data, error } = await q;
+    const { data, error } = await selectProviders((cols, withAreas) => {
+      let q = sb.from('providers').select(cols)
+        .eq('is_active', true).order('sort_order').order('name').order('id').range(offset, offset + PAGE - 1);
+      if (cat) q = q.eq('category_id', cat);
+      if (minDisc) q = q.gte('discount_percent', minDisc);
+      if (area && withAreas) q = q.eq('area_id', area);
+      return q;
+    });
     if (error) throw error;
     return data;
   }, PAGE, () => (cat || minDisc || area ? S('category_empty') : S('home_empty')));

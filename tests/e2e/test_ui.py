@@ -38,6 +38,26 @@ def serve():
     ThreadingHTTPServer(("127.0.0.1", 8080), partial(Q, directory=ROOT)).serve_forever()
 
 
+def totp(secret, offset=0):
+    import base64, hashlib, hmac as _h
+    key = base64.b32decode(secret.upper() + "=" * ((8 - len(secret) % 8) % 8))
+    ctr = int(time.time() // 30) + offset
+    dg = _h.new(key, ctr.to_bytes(8, "big"), hashlib.sha1).digest()
+    o = dg[-1] & 15
+    return f"{(int.from_bytes(dg[o:o + 4], 'big') & 0x7fffffff) % 1000000:06d}"
+
+
+def noisy_png(path, w=2400, h=1800):
+    import random
+    im = Image.effect_noise((w, h), 90).convert("RGB")
+    d = ImageDraw.Draw(im)
+    for _ in range(60):
+        x, y = random.randint(0, w), random.randint(0, h)
+        d.ellipse((x, y, x + 300, y + 300), fill=(random.randint(0, 255), random.randint(0, 255), random.randint(0, 255)))
+    im.save(path)
+    return path
+
+
 def png(path, color, text):
     im = Image.new("RGB", (1200, 900), color)
     d = ImageDraw.Draw(im)
@@ -113,8 +133,57 @@ def main():
         expect(a.locator(".form-error")).to_contain_text("Wrong email or password")
         a.fill("input[type=password]", "AdminPass123")
         a.click("main button[type=submit]")
+        # first login: set up 2FA (authenticator app)
+        expect(a.locator("h1")).to_have_text("Two-step verification")
+        a.wait_for_selector("#mfa-secret")
+        shot(a, "02a-admin-2fa-setup")
+        secret = a.locator("#mfa-secret").inner_text().strip()
+        a.fill("input.otp", "000000" if totp(secret) != "000000" else "111111")
+        a.click("main button[type=submit]")
+        expect(a.locator(".form-error")).to_contain_text("Wrong or expired code")
+        a.fill("input.otp", totp(secret))
+        a.click("main button[type=submit]")
         expect(a.locator("h1")).to_have_text("Dashboard")
         shot(a, "02-admin-dashboard")
+        assert sql("select count(*) from auth.mfa_factors where status='verified'") == "1"
+        # second device / new session: password + code (no setup screen)
+        a2 = phone_ctx(browser, "admin2").new_page()
+        a2.goto(SITE + "/admin.html")
+        a2.fill("input[type=email]", "owner@gmail.com"); a2.fill("input[type=password]", "AdminPass123")
+        a2.click("main button[type=submit]")
+        expect(a2.locator("h1")).to_have_text("Two-step verification")
+        expect(a2.locator("#mfa-secret")).to_have_count(0)
+        a2.fill("input.otp", totp(secret, 1)); a2.click("main button[type=submit]")
+        expect(a2.locator("h1")).to_have_text("Dashboard")
+        # password alone is not enough: an aal1 session gets no admin data
+        a3 = phone_ctx(browser, "admin-aal1").new_page()
+        a3.goto(SITE + "/index.html")
+        r = a3.evaluate("""async () => { const m = await import('/js/common.js');
+            await m.sb.auth.signInWithPassword({ email: 'owner@gmail.com', password: 'AdminPass123' });
+            const s = await m.sb.rpc('admin_stats'); const ctx = await m.sb.rpc('get_my_context'); return [s.data, ctx.data.role]; }""")
+        assert r == [None, "none"], r
+        # brute force from another IP -> that IP is banned from admin
+        atk = phone_ctx(browser, "attacker", extra_http_headers={"X-Test-Client-IP": "203.0.113.50"}).new_page()
+        atk.goto(SITE + "/admin.html")
+        for i in range(10):
+            if atk.locator("text=Access denied").count():
+                break
+            atk.fill("input[type=email]", "owner@gmail.com"); atk.fill("input[type=password]", f"guess-{i}")
+            atk.click("main button[type=submit]")
+            atk.wait_for_timeout(300)
+            atk.wait_for_function("!document.querySelector('main button[type=submit]') || !document.querySelector('main button[type=submit]').disabled")
+        expect(atk.locator("h1")).to_have_text("Access denied")
+        shot(atk, "02b-admin-banned", full=False)
+        atk.goto(SITE + "/admin.html"); expect(atk.locator("h1")).to_have_text("Access denied")
+        # even the right password + code from the banned IP gets nothing
+        r = atk.evaluate("""async () => { const m = await import('/js/common.js');
+            await m.sb.auth.signInWithPassword({ email: 'owner@gmail.com', password: 'AdminPass123' }); return (await m.sb.rpc('is_admin')).data; }""")
+        assert r is False, r
+        a.goto(SITE + "/admin.html#security")
+        expect(a.locator(".list").first).to_contain_text("203.0.113.50")
+        shot(a, "02c-admin-security")
+        a.goto(SITE + "/admin.html")
+        expect(a.locator("h1")).to_have_text("Dashboard")
 
         # providers
         a.click("text=Providers")
@@ -125,10 +194,16 @@ def main():
         a.locator(".sheet input").nth(2).fill("Cafe Aroma")
         a.locator(".sheet input").nth(3).fill("15")
         a.locator(".sheet textarea").fill("Offer only valid on Fridays\nDine-in only")
-        a.set_input_files(".sheet input[type=file]", cafe_img)
+        a.set_input_files(".sheet input[type=file]", noisy_png("/home/claude/e2e/imgs/big.png"))
         shot(a, "03-admin-provider-new", full=False)
         a.click(".sheet button[type=submit]")
         expect(a.locator(".list")).to_contain_text("Cafe Aroma")
+        a.wait_for_timeout(800)
+        size = a.evaluate("""async () => { const m = await import('/js/common.js');
+            const { data } = await m.sb.from('providers').select('image_path').eq('name', 'Cafe Aroma').single();
+            const r = await fetch(m.mediaUrl(data.image_path)); const b = await r.blob(); return [b.size, b.type, data.image_path]; }""")
+        print("compressed upload:", size, "original:", os.path.getsize("/home/claude/e2e/imgs/big.png"))
+        assert size[0] < 170 * 1024 and size[1] == "image/webp" and size[2].endswith(".webp"), size
         a.click("text=+ Add")
         a.fill(".sheet input >> nth=0", "Bad Name")
         a.locator(".sheet input").nth(2).fill("X")
@@ -514,11 +589,106 @@ def main():
         pp.click("main button[type=submit]")
         expect(pp.locator(".form-error")).to_contain_text("Wrong username")
 
+        # ---------------- phone camera app opens the QR link -> auto verify ----------------
+        tok = c.evaluate("""async () => { const m = await import('/js/common.js'); return (await m.sb.rpc('get_member_qr')).data.token; }""")
+        bq = pw.chromium.launch()
+        pv = phone_ctx(bq, "provider-native").new_page()
+        pv.goto(SITE + "/partner.html"); pv.wait_for_selector("main h1")
+        pv.fill("input[autocomplete=username]", "cafe_one"); pv.fill("input[type=password]", "CafePass123")
+        pv.click("main button[type=submit]"); pv.wait_for_selector(".scanner, .scanner.err, .result", timeout=15000)
+        pv.goto(SITE + f"/v.html#{tok}")
+        pv.wait_for_selector(".result", timeout=15000)
+        assert "#" not in pv.url.split("partner.html")[-1] or "XG1" not in pv.url, pv.url
+        expect(pv.locator(".result")).to_contain_text("Ahmed M.")
+        shot(pv, "33b-native-camera-verify", full=False)
+        bq.close()
+        # a customer opening someone's QR link sees no member info
+        c.goto(SITE + f"/v.html#{tok}")
+        expect(c.locator("main")).to_contain_text("Only partner businesses can check it")
+        # partner who isn't logged in: login first, then the code is checked automatically
+        bq = pw.chromium.launch()
+        pv = phone_ctx(bq, "provider-native2").new_page()
+        tok2 = c.evaluate("""async () => { const m = await import('/js/common.js'); return (await m.sb.rpc('get_member_qr')).data.token; }""")
+        pv.goto(SITE + f"/v.html#{tok2}")
+        pv.wait_for_selector("text=Partner login")
+        pv.fill("input[autocomplete=username]", "cafe_one"); pv.fill("input[type=password]", "CafePass123")
+        pv.click("main button[type=submit]")
+        pv.wait_for_selector(".result", timeout=15000)
+        expect(pv.locator(".result")).to_contain_text("Ahmed M.")
+        bq.close()
+
+        # ---------------- paid membership: InstaPay / Vodafone Cash ----------------
+        a.goto(SITE + "/admin.html#payments")
+        a.wait_for_selector("text=Membership sign-up")
+        a.check("input[value=active]")
+        a.locator("form:has-text('Membership sign-up') input[type=number]").nth(1).fill("2")
+        a.click("form:has-text('Membership sign-up') button[type=submit]")
+        a.wait_for_selector(".toast")
+        for meth, vals in (("InstaPay", ["xgo.one@instapay", "xgo.two@instapay"]), ("Vodafone Cash", ["01001234567"])):
+            for v in vals:
+                a.locator(f".row:has(.pm-tag:text-is('{meth}')) >> text=+ Add").click()
+                a.locator(".sheet input").first.fill(v)
+                a.click(".sheet button[type=submit]")
+                a.wait_for_selector(f".list >> text={v}")
+        shot(a, "60-admin-payments-settings")
+        payer = phone_ctx(browser, "payer").new_page()
+        payer.goto(SITE + "/signup.html")
+        payer.fill("input[autocomplete=given-name]", "Sara"); payer.fill("input[autocomplete=family-name]", "Adel")
+        payer.fill("input[type=tel]", "01112223333"); payer.fill("input[type=password]", "SaraPass123")
+        payer.click("main button[type=submit]"); payer.wait_for_url("**/membership.html")
+        payer.wait_for_selector(".pay-method")
+        expect(payer.locator(".mcard .price")).to_contain_text("199 EGP")
+        shot(payer, "61-pay-choose")
+        payer.click(".pay-method.vodafone")
+        expect(payer.locator(".pay-value")).to_have_text("01001234567")
+        payer.click(".pay-form >> text=Change payment method")
+        payer.click(".pay-method.instapay")
+        expect(payer.locator(".pay-value")).to_have_text("xgo.one@instapay")
+        payer.click(".pay-form button[type=submit]")
+        expect(payer.locator(".pay-form .form-error")).to_contain_text("screenshot")
+        payer.set_input_files(".pay-form input[type=file]", noisy_png("/home/claude/e2e/imgs/transfer.png", 1170, 2532))
+        payer.fill(".pay-form input.input", "Sara A. - CIB")
+        shot(payer, "62-pay-form")
+        payer.click(".pay-form button[type=submit]")
+        payer.wait_for_selector("text=Request under review")
+        shot(payer, "63-pay-pending")
+        assert sql("select status || ' ' || method from public.membership_requests where status='pending'") == "pending instapay"
+        # screenshot is private: no public URL, and another customer can't get a signed link
+        pth = sql("select proof_path from public.membership_requests where status='pending'")
+        r = c.evaluate(f"""async () => {{ const m = await import('/js/common.js');
+            const pub = await fetch(m.SUPABASE_URL + '/storage/v1/object/public/proofs/{pth}');
+            const sig = await m.sb.storage.from('proofs').createSignedUrl('{pth}', 60);
+            return [pub.status, !!sig.error]; }}""")
+        assert r[0] != 200 and r[1] is True, r
+        a.goto(SITE + "/admin.html#payments"); a.reload()
+        a.wait_for_selector(".list .item:has-text('Sara Adel')")
+        a.click(".list .item:has-text('Sara Adel')")
+        a.wait_for_selector(".sheet img.proof-img")
+        a.wait_for_function("document.querySelector('.sheet img.proof-img').naturalWidth > 0")
+        shot(a, "64-admin-request", full=False)
+        a.click(".sheet >> text=Approve & activate")
+        a.wait_for_selector(".toast")
+        payer.reload()
+        payer.wait_for_selector(".qrbox canvas")
+        expect(payer.locator(".mcard .badge")).to_have_text("Active")
+        shot(payer, "65-pay-approved")
+        assert sql("select source || ' ' || paid_egp from public.memberships m join public.profiles p on p.id=m.user_id where p.phone='201112223333'") == "payment 199.00"
+        # mode closed -> no requests
+        a.goto(SITE + "/admin.html#payments"); a.reload(); a.wait_for_selector("text=Membership sign-up")
+        a.check("input[value=inactive]"); a.click("form:has-text('Membership sign-up') button[type=submit]"); a.wait_for_selector(".toast")
+        p2 = phone_ctx(browser, "payer2").new_page()
+        p2.goto(SITE + "/signup.html")
+        p2.fill("input[autocomplete=given-name]", "Omar"); p2.fill("input[autocomplete=family-name]", "Z")
+        p2.fill("input[type=tel]", "01112224444"); p2.fill("input[type=password]", "OmarPass123")
+        p2.click("main button[type=submit]"); p2.wait_for_url("**/membership.html")
+        expect(p2.locator(".mcard")).to_contain_text("temporarily unavailable")
+        a.check("input[value=free]"); a.click("form:has-text('Membership sign-up') button[type=submit]"); a.wait_for_selector(".toast")
+
         # ---------------- admin ends membership -> scan shows expired ----------------
         a.click(".admin-tabs >> text=Members")
         a.wait_for_selector(".list .item")
         shot(a, "40-admin-members")
-        a.click(".list .item >> nth=0")
+        a.click(".list .item:has-text('Ahmed')")
         shot(a, "41-admin-member-sheet", full=False)
         a.click("text=End membership now")
         a.click(".dialog .btn.danger")

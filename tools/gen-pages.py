@@ -20,6 +20,7 @@ PAGES = {  # file: (title, script, description or None, noindex)
     'partner': ('Partner portal · XGo Plus', 'partner', None, True),
     'admin': ('Admin · XGo Plus', 'admin', None, True),
     '404': ('Not found · XGo Plus', 'notfound', None, True),
+    'v': ('Verify member · XGo Plus', 'verify', None, True),
 }
 for name, (title, script, desc, noindex) in PAGES.items():
     base = '\n  <base href="/">' if name == '404' else ''

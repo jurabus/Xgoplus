@@ -208,29 +208,72 @@ export function mediaUrl(path, v) {
   return `${SUPABASE_URL}/storage/v1/object/public/media/${enc}${v ? `?v=${encodeURIComponent(v)}` : ''}`;
 }
 // Resize + re-encode before upload (also strips EXIF/GPS).
-export async function resizeImage(file, max = 900, quality = 0.85) {
+// Resize + re-encode before upload (also strips EXIF/GPS). WebP when the browser can encode it,
+// otherwise JPEG; quality is lowered step by step until the file is under `maxBytes`.
+let webpOk = null;
+function canWebp() {
+  if (webpOk === null) {
+    try { const c = document.createElement('canvas'); c.width = c.height = 2; webpOk = c.toDataURL('image/webp').startsWith('data:image/webp'); }
+    catch { webpOk = false; }
+  }
+  return webpOk;
+}
+export async function resizeImage(file, max = 900, maxBytes = 180 * 1024) {
   if (!file || !/^image\//.test(file.type)) throw new Error('not_image');
+  if (file.size > 25 * 1024 * 1024) throw new Error('image_too_big');
   const bmp = await createImageBitmap(file).catch(async () => {
     const url = URL.createObjectURL(file);
     try {
       const img = new Image(); img.src = url; await img.decode(); return img;
     } finally { setTimeout(() => URL.revokeObjectURL(url), 1000); }
   });
-  const scale = Math.min(1, max / Math.max(bmp.width, bmp.height));
-  const w = Math.round(bmp.width * scale), hgt = Math.round(bmp.height * scale);
-  const c = document.createElement('canvas'); c.width = w; c.height = hgt;
-  c.getContext('2d').drawImage(bmp, 0, 0, w, hgt);
-  const type = 'image/jpeg';
-  const blob = await new Promise((res) => c.toBlob(res, type, quality));
-  if (!blob) throw new Error('encode_failed');
+  let scale = Math.min(1, max / Math.max(bmp.width, bmp.height));
+  const type = canWebp() ? 'image/webp' : 'image/jpeg';
+  let blob = null;
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const w = Math.max(1, Math.round(bmp.width * scale)), hgt = Math.max(1, Math.round(bmp.height * scale));
+    const c = document.createElement('canvas'); c.width = w; c.height = hgt;
+    const g = c.getContext('2d');
+    if (type === 'image/jpeg') { g.fillStyle = '#fff'; g.fillRect(0, 0, w, hgt); }   // no black background for PNGs
+    g.drawImage(bmp, 0, 0, w, hgt);
+    const q = [0.82, 0.74, 0.66, 0.58, 0.5, 0.5, 0.45, 0.4][attempt];
+    blob = await new Promise((res) => c.toBlob(res, type, q));
+    if (!blob) throw new Error('encode_failed');
+    if (blob.size <= maxBytes) break;
+    if (attempt >= 4) scale *= 0.85;                                                   // still too big: shrink dimensions
+  }
   return blob;
 }
-export async function uploadImage(folder, file, max) {
-  const blob = await resizeImage(file, max);
-  const name = `${folder}/${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}.jpg`;
-  const { error } = await sb.storage.from('media').upload(name, blob, { contentType: 'image/jpeg', upsert: false, cacheControl: '31536000' });
+const extFor = (t) => (t === 'image/webp' ? 'webp' : 'jpg');
+export async function uploadImage(folder, file, max, maxBytes) {
+  const blob = await resizeImage(file, max, maxBytes || (max >= 1400 ? 300 * 1024 : max <= 400 ? 60 * 1024 : 160 * 1024));
+  const name = `${folder}/${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}.${extFor(blob.type)}`;
+  const { error } = await sb.storage.from('media').upload(name, blob, { contentType: blob.type, upsert: false, cacheControl: '31536000' });
   if (error) throw error;
   return name;
+}
+// Transfer screenshot -> PRIVATE bucket (proofs/<user id>/<request id>-<rand>.<ext>)
+export async function uploadProof(userId, requestId, file) {
+  const blob = await resizeImage(file, 1400, 350 * 1024);
+  const rand = Array.from(crypto.getRandomValues(new Uint8Array(6)), (b) => 'abcdefghijkmnpqrstuvwxyz23456789'[b % 32]).join('');
+  const name = `${userId}/${requestId}-${rand}.${extFor(blob.type)}`;
+  const { error } = await sb.storage.from('proofs').upload(name, blob, { contentType: blob.type, upsert: false });
+  if (error) throw error;
+  return name;
+}
+
+// Partner lists with their area name. If the areas update (007) isn't in the database yet,
+// fall back to the plain columns instead of showing nothing.
+let areasEmbedOk = true;
+export async function selectProviders(build) {
+  if (areasEmbedOk) {
+    const r = await build(PROVIDER_COLS, true);
+    if (!r.error) return r;
+    if (!/areas|relationship|schema cache|area_id/i.test(r.error.message || '')) return r;
+    areasEmbedOk = false;
+    console.warn('Areas not available in the database yet — run supabase/migrations/007_areas.sql');
+  }
+  return build('id,name,image_path,discount_percent', false);
 }
 
 // ---------- feedback ----------
@@ -248,12 +291,28 @@ const ERRORS = {
   not_found: 'Not found.',
   invalid_days: 'Enter a number of days between 1 and 3660.',
   invalid_reason: 'Please choose one of the listed reasons.',
+  payments_unavailable: 'Membership requests are not available right now.',
+  method_unavailable: 'This payment method is not available right now.',
+  request_pending: 'You already have a request under review.',
+  proof_required: 'Please upload the transfer screenshot.',
+  already_decided: 'This request was already handled.',
+  invalid_wallet_number: 'Vodafone Cash number must be 11 digits starting with 01.',
+  invalid_ip: 'Enter a valid IP address.',
+  cannot_ban_self: 'You cannot ban your own IP address.',
+  image_too_big: 'This image is too large.',
+  not_image: 'Please choose an image file.',
   too_many_reports: 'You already reported this partner twice this week. We are on it.',
   providers_limit_check: 'Uses per period must be between 1 and 100.',
   providers_days_check: 'Pick at least one day.',
 };
+// Admin pages show the technical reason too (helps diagnose problems from a phone).
+export const debugErrors = { on: false };
 export function errMsg(e) {
   const m = String(e?.message || e || '');
+  const friendly = errMsgFriendly(m);
+  return debugErrors.on && m && !friendly.includes(m) ? `${friendly} [${m.slice(0, 160)}]` : friendly;
+}
+function errMsgFriendly(m) {
   for (const k of Object.keys(ERRORS)) if (m.includes(k)) return ERRORS[k];
   if (/Invalid login credentials/i.test(m)) return S('login_error');
   if (/already registered|already exists/i.test(m)) return S('signup_exists');

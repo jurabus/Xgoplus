@@ -126,9 +126,21 @@ async function scanView() {
   };
   raf = requestAnimationFrame(tick);
 }
+const TOKEN_RE = /XG1\.[0-9a-f]{32}\.[0-9]{9,11}\.[0-9a-f]{32}/;
+export function extractToken(data) { return (String(data || '').match(TOKEN_RE) || [null])[0]; }
+function takePendingToken() {
+  try {
+    const p = JSON.parse(sessionStorage.getItem('xg-verify') || 'null');
+    sessionStorage.removeItem('xg-verify');
+    if (p && Date.now() - p.at < 175 * 1000) return extractToken(p.t);
+  } catch { /* */ }
+  return null;
+}
+function hasPendingToken() { try { return !!sessionStorage.getItem('xg-verify'); } catch { return false; } }
+
 export async function verify(token) {
   clear(app).append(h('div', { class: 'spinner' }));
-  const { data, error } = await sb.rpc('verify_member_qr', { p_token: String(token).slice(0, 200) });
+  const { data, error } = await sb.rpc('verify_member_qr', { p_token: extractToken(token) || String(token).slice(0, 200) });
   const again = h('button', { class: 'btn block', type: 'button', text: S('scan_again'), onclick: () => scanView() });
   if (error) { clear(app).append(h('div', { class: 'result warn' }, h('h2', { text: errMsg(error) })), h('div', { class: 'stack' }, again)); return; }
   let box;
@@ -254,12 +266,14 @@ function route() {
 async function main() {
   ctx = await shell('scan', { searchBar: false });
   if (ctx.role !== 'provider') {
-    if (ctx.role === 'customer') { clear(app).append(h('div', { class: 'card stack' }, h('p', { text: 'You are logged in as a customer. Log out to sign in as a partner.' }), h('button', { class: 'btn', type: 'button', text: 'Log out', onclick: () => logout('partner.html') }))); return; }
+    if (ctx.role === 'customer') { clear(app).append(h('div', { class: 'card stack' }, h('p', { text: hasPendingToken() ? 'This is an XGo Plus membership code. Only partner businesses can check it.' : 'You are logged in as a customer. Log out to sign in as a partner.' }), h('button', { class: 'btn', type: 'button', text: 'Log out', onclick: () => logout('partner.html') }))); return; }
     loginView();
     return;
   }
   addEventListener('hashchange', route);
   addEventListener('pagehide', stopCamera);
+  const pending = takePendingToken();          // opened from the phone camera (v.html)
+  if (pending) { history.replaceState(null, '', 'partner.html#scan'); verify(pending); return; }
   route();
 }
 main().catch((e) => { if (e?.message !== 'redirect') console.error(e); });
