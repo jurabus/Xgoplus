@@ -71,9 +71,18 @@ def shot(page, name, full=True):
     page.screenshot(path=f"{SHOTS}/{name}.png", full_page=full)
 
 
-def phone_ctx(browser, name, **kw):
-    ctx = browser.new_context(viewport={"width": 390, "height": 844}, device_scale_factor=2, is_mobile=True,
+IOS_UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1"
+AND_UA = "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36"
+
+
+def phone_ctx(browser, name, install_popup=False, android=False, **kw):
+    vp = {"width": 412, "height": 915} if android else {"width": 390, "height": 844}
+    if android:
+        kw.setdefault("user_agent", AND_UA)
+    ctx = browser.new_context(viewport=vp, device_scale_factor=2, is_mobile=True,
                               has_touch=True, locale="en-US", **kw)
+    if not install_popup:  # keep the install popup out of functional tests
+        ctx.add_init_script("try { localStorage.setItem('xg-install-dismissed', String(Date.now() + 864e5)); } catch (e) {}")
     wire(ctx, name)
     return ctx
 
@@ -163,8 +172,8 @@ def main():
 
         # categories: add one, reorder, assign providers
         a.click(".admin-tabs >> text=Categories")
-        a.wait_for_selector(".list .item")
-        assert a.locator(".list .item").count() == 6
+        expect(a.locator("h1")).to_have_text("Categories")
+        expect(a.locator(".list .item")).to_have_count(6)
         a.click("text=+ Add")
         a.locator(".sheet input").nth(0).fill("Bakeries")
         a.locator(".sheet input").nth(1).fill("🥐")
@@ -188,29 +197,63 @@ def main():
             a.wait_for_timeout(500)
         expect(a.locator(".list")).to_contain_text("Gyms")
         shot(a, "09-admin-providers-with-categories")
+        # areas: add one, assign Cafe Aroma to Sheikh Zayed
+        a.click(".admin-tabs >> text=Areas")
+        expect(a.locator("h1")).to_have_text("Areas")
+        expect(a.locator(".list .item")).to_have_count(2)
+        a.click("text=+ Add")
+        a.locator(".sheet input").nth(0).fill("New Cairo")
+        a.click(".sheet button[type=submit]")
+        expect(a.locator(".list")).to_contain_text("New Cairo")
+        shot(a, "09b-admin-areas")
+        a.click(".admin-tabs >> text=Providers")
+        a.click(".list >> text=Cafe Aroma")
+        a.wait_for_selector(".sheet .limits")
+        a.locator(".sheet select").nth(1).select_option(label="Sheikh Zayed")
+        shot(a, "09c-admin-provider-area", full=False)
+        a.click(".sheet button[type=submit]")
+        a.wait_for_selector(".toast")
+        assert sql("select a.name from public.providers p join public.areas a on a.id=p.area_id where p.username='cafe_one'") == "Sheikh Zayed"
+        # category icon picker
+        a.click(".admin-tabs >> text=Categories")
+        a.locator(".list .item").nth(0).locator(".btn-reset").click()
+        a.wait_for_selector(".iconpick")
+        shot(a, "09d-admin-category-iconpick", full=False)
+        a.click(".sheet >> text=Close")
 
         # ---------------- guest ----------------
         g = phone_ctx(browser, "guest").new_page()
         g.goto(SITE + "/")
-        g.wait_for_selector(".pcard")
-        expect(g.locator("main p.muted").first).to_have_text("Members save more, everywhere")
-        n1 = g.locator(".pcard").count()
+        g.wait_for_selector(".deals .dcard")
+        expect(g.locator(".hero-title")).to_contain_text("More Savings.")
+        expect(g.locator(".catbar .cat")).to_have_count(7)
+        offs = [float(t.split("%")[0]) for t in g.locator(".deals .dcard .off").all_text_contents()]
+        assert offs == sorted(offs, reverse=True) and len(offs) == 12, offs
         shot(g, "10-guest-home", full=False)
-        g.mouse.wheel(0, 6000); g.wait_for_timeout(800); g.mouse.wheel(0, 6000); g.wait_for_timeout(800)
-        n2 = g.locator(".pcard").count()
+        shot(g, "10b-guest-home-full")
+        g.click(".catbar .cat >> nth=0")
+        g.wait_for_url("**/offers.html?cat=*")
+        expect(g.locator(".chip.active")).to_contain_text("Cafés")
+        g.goto(SITE + "/offers.html")
+        g.wait_for_selector(".dcard")
+        expect(g.locator("main p.muted").first).to_have_text("Members save more, everywhere")
+        n1 = g.locator(".dcard").count()
+        g.mouse.wheel(0, 9000); g.wait_for_timeout(900); g.mouse.wheel(0, 9000); g.wait_for_timeout(900)
+        n2 = g.locator(".dcard").count()
         assert n1 == 24 and n2 == 42, (n1, n2)
-        shot(g, "11-guest-home-scrolled")
+        shot(g, "11-guest-offers", full=False)
         # category chips
         g.mouse.wheel(0, -20000); g.wait_for_timeout(300)
         g.click(".chip:has-text('Gyms')")
         g.wait_for_timeout(800)
-        assert g.locator(".pcard").all_inner_texts()[0].startswith("Power Gym") and g.locator(".pcard").count() == 1
+        assert "Power Gym" in g.locator(".dcard").all_text_contents()[0] and g.locator(".dcard").count() == 1
         shot(g, "11b-guest-category-gyms", full=False)
         g.click(".chip:has-text('Clinics')"); g.wait_for_timeout(700)
         expect(g.locator(".empty")).to_contain_text("No partners in this category")
         g.click(".chip:has-text('All')"); g.wait_for_timeout(700)
-        assert g.locator(".pcard").count() == 24
+        assert g.locator(".dcard").count() == 24
         # header search: typo -> suggestion
+        g.goto(SITE + "/")
         g.fill(".hsearch input", "aroam")
         g.wait_for_selector(".sug")
         expect(g.locator(".sug").first).to_contain_text("Cafe Aroma")
@@ -222,11 +265,11 @@ def main():
         shot(g, "11d-search-5-suggestions", full=False)
         g.click(".sug-all")
         g.wait_for_url("**/search.html?q=shpo")
-        g.wait_for_selector(".pcard")
-        assert g.locator(".pcard").count() == 20, g.locator(".pcard").count()
+        g.wait_for_selector(".dcard")
+        assert g.locator(".dcard").count() == 20, g.locator(".dcard").count()
         shot(g, "11e-search-results", full=False)
         g.mouse.wheel(0, 8000); g.wait_for_timeout(1000); g.mouse.wheel(0, 8000); g.wait_for_timeout(1000)
-        assert g.locator(".pcard").count() == 40, g.locator(".pcard").count()
+        assert g.locator(".dcard").count() == 40, g.locator(".dcard").count()
         g.goto(SITE + "/search.html?q=zzqqxx")
         expect(g.locator(".empty")).to_contain_text("No partners match")
         shot(g, "11f-search-empty", full=False)
@@ -237,10 +280,55 @@ def main():
         expect(g.locator("h1")).to_have_text("Cafe Aroma")
         expect(g.locator(".notes")).to_contain_text("Fridays")
         shot(g, "12-guest-provider")
+        expect(g.locator(".p-area")).to_contain_text("Sheikh Zayed")
+        # customer area picker -> top deals only from that area
+        g.goto(SITE + "/")
+        g.click(".site-head .area-pill")
+        shot(g, "12b-area-picker", full=False)
+        g.click(".area-opt:has-text('Sheikh Zayed')")
+        g.wait_for_selector(".deals .dcard, main .empty")
+        g.wait_for_timeout(600)
+        names = g.locator(".deals .dcard .name").all_text_contents()
+        assert names == ["Cafe Aroma"], names
+        expect(g.locator(".site-head .area-pill")).to_contain_text("Sheikh Zayed")
+        shot(g, "12c-home-area-zayed", full=False)
+        g.goto(SITE + "/offers.html"); g.wait_for_selector(".dcard")
+        assert g.locator(".dcard").count() == 1
+        g.fill(".site-head .hsearch input", "gym"); g.wait_for_timeout(900)
+        expect(g.locator(".search-empty")).to_be_visible()
+        g.click(".site-head .area-pill"); g.click(".area-opt:has-text('All areas')")
+        g.wait_for_selector(".dcard"); g.wait_for_timeout(500)
+        assert g.locator(".dcard").count() == 24
         g.goto(SITE + "/provider.html?id=00000000-0000-0000-0000-000000000000")
         expect(g.locator(".empty")).to_contain_text("not available")
         g.goto(SITE + "/membership.html")
         shot(g, "13-guest-membership")
+
+        # ---------------- install popup ----------------
+        ios = phone_ctx(browser, "ios", install_popup=True, user_agent=IOS_UA).new_page()
+        ios.goto(SITE + "/"); ios.wait_for_selector(".install", timeout=8000)
+        expect(ios.locator(".install")).to_contain_text("Add to Home Screen")
+        shot(ios, "15-install-ios", full=False)
+        ios.click(".install >> text=Not now")
+        expect(ios.locator(".install")).to_have_count(0)
+        ios.reload(); ios.wait_for_timeout(3500)
+        expect(ios.locator(".install")).to_have_count(0)
+        st_ctx = phone_ctx(browser, "ios-standalone", install_popup=True, user_agent=IOS_UA)
+        st_ctx.add_init_script("Object.defineProperty(navigator, 'standalone', { get: () => true });")
+        st = st_ctx.new_page(); st.goto(SITE + "/"); st.wait_for_timeout(3500)
+        expect(st.locator(".install")).to_have_count(0)
+        pwa = phone_ctx(browser, "android-pwa", install_popup=True, android=True).new_page()
+        pwa.goto(SITE + "/index.html?source=pwa"); pwa.wait_for_timeout(3500)
+        expect(pwa.locator(".install")).to_have_count(0)
+        andp = phone_ctx(browser, "android", install_popup=True, android=True).new_page()
+        andp.goto(SITE + "/"); andp.wait_for_selector(".install", timeout=8000)
+        expect(andp.locator(".install")).to_contain_text("Install app")
+        shot(andp, "16-install-android", full=False)
+        # manifest is valid + icons exist
+        man = andp.evaluate("fetch('/manifest.webmanifest').then(r => r.json())")
+        assert man["display"] == "standalone" and len(man["icons"]) == 3
+        for ic in man["icons"]:
+            assert andp.evaluate(f"fetch('{ic['src']}').then(r => r.status)") == 200
 
         # ---------------- customer ----------------
         c = phone_ctx(browser, "customer").new_page()
@@ -280,7 +368,7 @@ def main():
         shot(c2, "24-login-error")
 
         # ---------------- provider scans with a fake camera showing the QR ----------------
-        def scan_with(qr_bytes, label):
+        def scan_with(qr_bytes, label, android=False):
             im = Image.open(io.BytesIO(qr_bytes)).convert("RGB")
             canvas = Image.new("RGB", (640, 480), (40, 40, 40))
             im = im.resize((360, 360))
@@ -290,19 +378,27 @@ def main():
             subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-loop", "1", "-i", src, "-t", "3", "-pix_fmt", "yuv420p", vid], check=True)
             b2 = pw.chromium.launch(args=["--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream",
                                           f"--use-file-for-fake-video-capture={vid}"])
-            ctx = phone_ctx(b2, "provider", permissions=["camera"])
+            ctx = phone_ctx(b2, "provider-android" if android else "provider", android=android, permissions=["camera"])
             p = ctx.new_page()
             p.goto(SITE + "/partner.html")
+            p.wait_for_selector("main h1")
             if p.locator("text=Partner login").count():
                 p.fill("input[autocomplete=username]", "cafe_one")
                 p.fill("input[type=password]", "CafePass123")
                 p.click("main button[type=submit]")
-            p.wait_for_selector(".result", timeout=20000)
+            try:
+                p.wait_for_selector(".result", timeout=20000)
+            except Exception:
+                p.screenshot(path=f"{SHOTS}/FAIL-{label}.png")
+                print("SCAN FAIL", label, p.evaluate("document.querySelector('main').innerText.slice(0,300)"),
+                      p.evaluate("document.querySelector('.scanner')?.dataset.decoder"))
+                raise
             return b2, p
 
         b2, p = scan_with(qr_png, "qr-active")
         expect(p.locator(".result")).to_contain_text("Membership active")
         expect(p.locator(".result .big")).to_have_text("15%")
+        expect(p.locator(".site-head .area-pill")).to_contain_text("Sheikh Zayed")
         expect(p.locator(".result")).to_contain_text("Ahmed M.")
         shot(p, "30-provider-scan-active")
         p.click("text=Scan next")
@@ -332,7 +428,7 @@ def main():
         # ---------------- limits: 2nd visit this month is refused ----------------
         sql("update public.scans set created_at = created_at - interval '20 minutes'")
         c.goto(SITE + "/membership.html"); c.wait_for_selector(".qrbox canvas"); c.wait_for_timeout(400)
-        b4, p4 = scan_with(c.locator(".qrbox canvas").screenshot(), "qr-limit")
+        b4, p4 = scan_with(c.locator(".qrbox canvas").screenshot(), "qr-limit", android=True)
         expect(p4.locator(".result")).to_contain_text("Usage limit reached")
         expect(p4.locator(".result")).to_contain_text("1 use per month")
         shot(p4, "34-provider-scan-limit")
@@ -349,11 +445,11 @@ def main():
         expect(c.locator(".list")).to_contain_text("Discount applied")
         shot(c, "36-customer-history")
         # discount filter
-        g.goto(SITE + "/")
-        g.wait_for_selector(".pcard")
+        g.goto(SITE + "/offers.html")
+        g.wait_for_selector(".dcard")
         g.select_option(".discount-sel", "20")
         g.wait_for_timeout(900)
-        offs = [float(t.split("%")[0]) for t in g.locator(".pcard .off").all_text_contents()]
+        offs = [float(t.split("%")[0]) for t in g.locator(".dcard .off").all_text_contents()]
         assert offs and min(offs) >= 20, offs
         shot(g, "14-guest-discount-filter", full=False)
         # report a partner
@@ -432,7 +528,8 @@ def main():
         expect(c.locator(".mcard .badge")).to_have_text("Expired")
         c.wait_for_timeout(400)
         shot(c, "42-customer-expired")
-        b3, p3 = scan_with(c.locator(".qrbox canvas").screenshot(), "qr-expired")
+        b3, p3 = scan_with(c.locator(".qrbox canvas").screenshot(), "qr-expired", android=True)
+        assert "Android" in p3.evaluate("navigator.userAgent")
         expect(p3.locator(".result")).to_contain_text("Membership expired")
         shot(p3, "43-provider-scan-expired")
         b3.close()
@@ -449,7 +546,7 @@ def main():
 
         # desktop view of home
         d = browser.new_context(viewport={"width": 1280, "height": 860}); wire(d, "desktop")
-        dp = d.new_page(); dp.goto(SITE + "/"); dp.wait_for_selector(".pcard")
+        dp = d.new_page(); dp.goto(SITE + "/"); dp.wait_for_selector(".dcard")
         shot(dp, "50-desktop-home", full=False)
         browser.close()
 

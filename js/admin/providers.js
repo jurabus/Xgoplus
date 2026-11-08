@@ -1,8 +1,14 @@
 import { sb, h, clear, errMsg, busy, toast, confirmDialog, mediaUrl, uploadImage, pct, initialOf, limitsEditor } from '../common.js';
 import { sheet, field, input, textarea, checkbox, pagedList } from './ui.js';
 
-let list, q = '', cats = [];
+let list, q = '', cats = [], areas = [];
 
+function areaSelect(selected) {
+  const s = h('select', { class: 'input' }, h('option', { value: '', text: '— No area —' }),
+    areas.map((a) => h('option', { value: a.id, text: `${a.name}${a.is_active ? '' : ' (hidden)'}` })));
+  s.value = selected || '';
+  return s;
+}
 function catSelect(selected) {
   const s = h('select', { class: 'input' }, h('option', { value: '', text: '— No category —' }),
     cats.map((c) => h('option', { value: c.id, text: `${c.icon ? c.icon + ' ' : ''}${c.name}${c.is_active ? '' : ' (hidden)'}` })));
@@ -22,13 +28,14 @@ function createSheet() {
   const disc = input({ type: 'number', min: 0.01, max: 100, step: 0.01, inputmode: 'decimal' });
   const notes = textarea('', { maxlength: 1000, rows: 3 });
   const cat = catSelect('');
+  const area = areaSelect('');
   const file = h('input', { type: 'file', accept: 'image/*' });
   const err = h('div', { class: 'form-error' });
   const btn = h('button', { class: 'btn block', type: 'submit', text: 'Create provider' });
   const form = h('form', { class: 'stack' },
     field('Username (login)', username, '3–30 lowercase letters, numbers, _'),
     field('Password', password, 'Share it with the provider. They log in at /partner.html'),
-    field('Business name', name), field('Category', cat), field('Discount %', disc), field('Special notes', notes, 'e.g. Offer only valid on Fridays'),
+    field('Business name', name), field('Category', cat), field('Area', area), field('Discount %', disc), field('Special notes', notes, 'Extra info. Day/usage limits are set separately (edit the provider after creating).'),
     field('Image / logo', file), err, btn);
   const s = sheet('New provider', form);
   form.addEventListener('submit', async (e) => {
@@ -39,8 +46,8 @@ function createSheet() {
       p_discount: Number(disc.value), p_notes: notes.value.trim(),
     });
     if (error) { busy(btn, false); err.textContent = errMsg(error); return; }
-    if (cat.value) {
-      const { error: ec } = await sb.rpc('admin_update_provider', { p_id: id, p_patch: { category_id: cat.value } });
+    if (cat.value || area.value) {
+      const { error: ec } = await sb.rpc('admin_update_provider', { p_id: id, p_patch: { category_id: cat.value, area_id: area.value } });
       if (ec) toast(`Created, but category failed: ${errMsg(ec)}`, 'bad');
     }
     if (file.files[0]) {
@@ -55,7 +62,7 @@ function createSheet() {
 }
 
 async function editSheet(p0) {
-  const { data: lim } = await sb.from('providers').select('limit_count,limit_period,allowed_days').eq('id', p0.id).maybeSingle();
+  const { data: lim } = await sb.from('providers').select('limit_count,limit_period,allowed_days,area_id').eq('id', p0.id).maybeSingle();
   const p = { ...p0, ...(lim || {}) };
   const limits = limitsEditor(p);
   let imagePath = p.image_path;
@@ -66,6 +73,7 @@ async function editSheet(p0) {
   const notes = textarea(p.notes || '', { maxlength: 1000, rows: 3 });
   const sort = input({ type: 'number', step: 1, value: p.sort_order });
   const cat = catSelect(p.category_id);
+  const area = areaSelect(p.area_id);
   const active = checkbox(p.is_active);
   const err = h('div', { class: 'form-error' });
   const save = h('button', { class: 'btn block', type: 'submit', text: 'Save' });
@@ -79,7 +87,7 @@ async function editSheet(p0) {
   });
   const form = h('form', { class: 'stack' },
     h('div', { class: 'img-pick' }, h('div', { class: 'slot' }, prev), file),
-    field('Business name', name), field('Category', cat), field('Discount %', disc), field('Special notes', notes),
+    field('Business name', name), field('Category', cat), field('Area', area), field('Discount %', disc), field('Special notes', notes),
     h('div', { class: 'card stack' }, h('b', { text: 'Usage limits' }), limits.el),
     field('Sort order (lower shows first)', sort),
     h('label', { class: 'switch' }, h('span', { text: 'Active (visible + can scan)' }), active), err, save);
@@ -94,7 +102,7 @@ async function editSheet(p0) {
     busy(save, true);
     const { error } = await sb.rpc('admin_update_provider', { p_id: p.id, p_patch: {
       name: name.value.trim(), discount_percent: Number(disc.value), notes: notes.value.trim(),
-      sort_order: Math.trunc(Number(sort.value) || 0), is_active: active.checked, image_path: imagePath, category_id: cat.value, ...limits.value(),
+      sort_order: Math.trunc(Number(sort.value) || 0), is_active: active.checked, image_path: imagePath, category_id: cat.value, area_id: area.value, ...limits.value(),
     } });
     busy(save, false);
     if (error) { err.textContent = errMsg(error); return; }
@@ -120,6 +128,8 @@ async function editSheet(p0) {
 export async function render(root) {
   const { data: cs } = await sb.from('categories').select('id,name,icon,is_active').order('sort_order').order('name').limit(200);
   cats = cs || [];
+  const { data: as } = await sb.from('areas').select('id,name,is_active').order('sort_order').order('name').limit(500);
+  areas = as || [];
   const search = input({ type: 'search', placeholder: 'Search name or username', maxlength: 60 });
   let t; search.addEventListener('input', () => { clearTimeout(t); t = setTimeout(() => { q = search.value.trim(); list.reset(); }, 250); });
   root.append(h('div', { class: 'row' }, h('h1', { class: 'grow', text: 'Providers' }), h('button', { class: 'btn sm', type: 'button', text: '+ Add', onclick: createSheet })),

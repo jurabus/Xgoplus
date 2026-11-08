@@ -1,4 +1,4 @@
-import { sb, shell, S, h, $, clear, canonicalPhone, phoneEmail, errMsg, busy, param, getContext } from '../common.js';
+import { sb, shell, S, h, $, clear, canonicalPhone, phoneEmail, errMsg, busy, param, getContext, brandLogo } from '../common.js';
 
 const app = $('#app');
 function safeNext() {
@@ -30,7 +30,7 @@ async function main() {
     const c = await getContext(true);
     location.replace(c.role === 'admin' && !param('next') ? 'admin.html' : safeNext());
   });
-  app.append(h('div', { class: 'auth stack' },
+  app.append(h('div', { class: 'auth stack' }, h('div', { class: 'auth-hero' }, brandLogo()),
     h('h1', { text: S('login_title') }), h('p', { class: 'muted', text: S('login_subtitle') }), form,
     h('p', { class: 'center' }, 'New here? ', h('a', { href: `signup.html${location.search}`, text: S('signup_button') })),
     h('p', { class: 'center small' }, h('a', { href: 'partner.html', text: S('nav_partner') }), ' · ', h('a', { href: 'admin.html', class: 'muted', text: 'Admin' }))));

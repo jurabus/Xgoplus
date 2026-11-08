@@ -1,4 +1,4 @@
-import { sb, shell, S, h, $, clear, errMsg, busy, fmtDate, toast, getContext, moduleOn } from '../common.js';
+import { sb, shell, S, h, $, clear, errMsg, busy, fmtDate, toast, getContext, moduleOn, logoSVG } from '../common.js';
 import { qrcode } from '../vendor/qrgen.js';
 
 const app = $('#app');
@@ -55,7 +55,7 @@ async function main() {
   if (!moduleOn('membership')) { app.append(h('div', { class: 'card', text: 'Memberships are not available right now.' })); return; }
 
   if (ctx.role === 'guest' || ctx.role === 'none') {
-    app.append(h('div', { class: 'mcard' }, priceBlock(), benefits(),
+    app.append(h('div', { class: 'mcard' }, h('div', { class: 'mlogo' }, logoSVG()), priceBlock(), benefits(),
       h('a', { class: 'btn block light', href: 'signup.html?next=membership.html', text: S('membership_cta') }),
       h('p', { class: 'small center', text: S('membership_login_needed') }),
       h('p', { class: 'center' }, h('a', { class: 'btn sm ghost', href: 'login.html?next=membership.html', text: S('login_button') }))));
@@ -81,14 +81,14 @@ async function main() {
   });
 
   if (m.status === 'none') {
-    app.append(h('div', { class: 'mcard' }, priceBlock(), benefits(), subBtn));
+    app.append(h('div', { class: 'mcard' }, h('div', { class: 'mlogo' }, logoSVG()), priceBlock(), benefits(), subBtn));
     return;
   }
   const active = m.status === 'active';
   const box = h('div', { class: 'qrbox' }, h('div', { class: 'spinner' }));
   const bar = h('i');
   const note = h('p', { class: 'small center', text: S('qr_hint') });
-  app.append(h('div', { class: 'mcard' },
+  app.append(h('div', { class: 'mcard' }, h('div', { class: 'mlogo' }, logoSVG()),
     h('div', { class: 'mstatus' },
       h('div', {}, h('div', { class: 'who', text: `${p.first_name} ${p.last_name}` }), h('div', { class: 'small', text: S('membership_title') })),
       h('span', { class: `badge ${active ? 'ok' : 'bad'}`, text: active ? S('membership_active_label') : S('membership_expired_label') })),

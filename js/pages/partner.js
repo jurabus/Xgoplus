@@ -1,6 +1,6 @@
 import {
   sb, shell, S, h, $, clear, icon, errMsg, busy, toast, providerEmail, getContext, mediaUrl,
-  uploadImage, pct, fmtDate, fmtDateTime, initialOf, logout, moduleOn, limitsEditor, passwordForm, rulesText, usageText,
+  uploadImage, pct, fmtDate, fmtDateTime, initialOf, logout, moduleOn, limitsEditor, passwordForm, rulesText, usageText, platform, brandLogo,
 } from '../common.js';
 
 const app = $('#app');
@@ -28,7 +28,7 @@ function loginView() {
     location.replace('partner.html#scan');
     location.reload();
   });
-  clear(app).append(h('div', { class: 'auth stack' },
+  clear(app).append(h('div', { class: 'auth stack' }, h('div', { class: 'auth-hero' }, brandLogo()),
     h('h1', { text: S('partner_login_title') }), h('p', { class: 'muted', text: S('partner_login_subtitle') }), form,
     h('p', { class: 'center small' }, h('a', { href: 'login.html', text: 'Customer login' }))));
 }
@@ -40,34 +40,89 @@ function stopCamera() {
   if (stream) stream.getTracks().forEach((t) => t.stop());
   stream = null;
 }
+// Camera permission help per platform
+function cameraHelp(err) {
+  const plat = platform();
+  const name = err?.name || '';
+  if (name === 'NotFoundError' || name === 'OverconstrainedError') return 'No camera was found on this device.';
+  if (name === 'NotReadableError') return 'The camera is being used by another app. Close it and tap “Try again”.';
+  if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) return 'This browser cannot open the camera. Open the site in Safari (iPhone) or Chrome (Android).';
+  if (plat === 'ios') return 'Camera access is blocked. In Safari tap “aA” in the address bar → Website Settings → Camera → Allow, then tap “Try again”. (Or iPhone Settings → Safari → Camera → Allow.)';
+  if (plat === 'android') return 'Camera access is blocked. In Chrome tap the icon left of the address (⋮ or 🔒) → Permissions → Camera → Allow, then tap “Try again”.';
+  return 'Camera access is blocked. Allow the camera for this site in your browser settings, then tap “Try again”.';
+}
+
+// Prefer the browser's native QR reader (Android Chrome) — fast and robust; fall back to jsQR (iPhone, others).
+async function makeDecoder() {
+  try {
+    if ('BarcodeDetector' in window) {
+      const formats = await window.BarcodeDetector.getSupportedFormats();
+      if (formats.includes('qr_code')) {
+        const det = new window.BarcodeDetector({ formats: ['qr_code'] });
+        return { kind: 'native', decode: async (src) => (await det.detect(src))[0]?.rawValue || null };
+      }
+    }
+  } catch { /* fall back */ }
+  const { jsQR } = await import('../vendor/qrscan.js');
+  const c = document.createElement('canvas');
+  const g = c.getContext('2d', { willReadFrequently: true });
+  return {
+    kind: 'jsqr',
+    decode: async (video) => {
+      const w = 480, hgt = Math.round((video.videoHeight / video.videoWidth) * w) || 640;
+      c.width = w; c.height = hgt;
+      g.drawImage(video, 0, 0, w, hgt);
+      return jsQR(g.getImageData(0, 0, w, hgt).data, w, hgt, { inversionAttempts: 'attemptBoth' })?.data || null;
+    },
+  };
+}
+
+async function openCamera() {
+  const tries = [
+    { video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false },
+    { video: { facingMode: 'environment' }, audio: false },
+    { video: true, audio: false },
+  ];
+  let lastErr;
+  for (const c of tries) {
+    try { return await navigator.mediaDevices.getUserMedia(c); } catch (e) {
+      lastErr = e;
+      if (e?.name === 'NotAllowedError' || e?.name === 'SecurityError') break; // permission problem: retrying won't help
+    }
+  }
+  throw lastErr;
+}
+
 async function scanView() {
   stopCamera();
   const video = h('video', { playsinline: true, muted: true, autoplay: true });
-  video.muted = true;
+  video.muted = true; video.setAttribute('webkit-playsinline', '');
   const msg = h('div', { class: 'msg', text: S('scan_hint') });
-  const area = h('div', { id: 'scan-area' }, h('div', { class: 'scanner' }, video, h('div', { class: 'frame' }), msg));
-  clear(app).append(h('h1', { text: S('scan_title') }), area);
-  const { jsQR } = await import('../vendor/qrscan.js');
+  const box = h('div', { class: 'scanner' }, video, h('div', { class: 'frame' }), msg);
+  clear(app).append(h('h1', { text: S('scan_title') }), h('div', { id: 'scan-area' }, box));
+  const decoderP = makeDecoder();
   try {
-    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 } }, audio: false });
+    if (!navigator.mediaDevices?.getUserMedia) throw new Error('no-media');
+    stream = await openCamera();
   } catch (e) {
-    msg.textContent = 'Camera access is needed. Allow camera for this site in Safari settings (aA → Website Settings → Camera), then reload.';
+    box.className = 'scanner err';
+    clear(box).append(h('div', { class: 'msg stack' }, h('b', { text: S('scan_title') }), h('div', { text: cameraHelp(e) }),
+      h('button', { class: 'btn block', type: 'button', text: 'Try again', onclick: () => scanView() })));
     return;
   }
   video.srcObject = stream;
   await video.play().catch(() => {});
-  const c = document.createElement('canvas');
-  const g = c.getContext('2d', { willReadFrequently: true });
-  let last = 0;
-  const tick = (t) => {
+  const decoder = await decoderP;
+  box.dataset.decoder = decoder.kind;
+  let last = 0, busyDecode = false;
+  const tick = async (t) => {
     raf = requestAnimationFrame(tick);
-    if (t - last < 120 || video.readyState < 2) return;
-    last = t;
-    const w = 480, hgt = Math.round((video.videoHeight / video.videoWidth) * w) || 640;
-    c.width = w; c.height = hgt;
-    g.drawImage(video, 0, 0, w, hgt);
-    const code = jsQR(g.getImageData(0, 0, w, hgt).data, w, hgt, { inversionAttempts: 'dontInvert' });
-    if (code?.data) { stopCamera(); verify(code.data); }
+    if (busyDecode || t - last < 120 || video.readyState < 2 || !video.videoWidth) return;
+    last = t; busyDecode = true;
+    try {
+      const data = await decoder.decode(video);
+      if (data && raf) { stopCamera(); verify(data); }
+    } catch { /* keep scanning */ } finally { busyDecode = false; }
   };
   raf = requestAnimationFrame(tick);
 }
@@ -154,7 +209,7 @@ async function profileView() {
   });
   const out = h('button', { class: 'btn block danger', type: 'button', text: 'Log out', onclick: () => logout('partner.html') });
   clear(app).append(h('h1', { text: S('partner_profile_title') }),
-    h('p', { class: 'muted small' }, 'Username: ', h('b', { text: p.username }), ' · ', h('a', { href: `provider.html?id=${p.id}`, text: 'View public page' })),
+    h('p', { class: 'muted small' }, 'Username: ', h('b', { text: p.username }), p.area_name ? [' · 📍 ', h('b', { text: p.area_name })] : null, ' · ', h('a', { href: `provider.html?id=${p.id}`, text: 'View public page' })),
     form, h('div', { class: 'stack' }, h('div'), passwordForm(), out));
 }
 
@@ -197,7 +252,7 @@ function route() {
 }
 
 async function main() {
-  ctx = await shell('scan');
+  ctx = await shell('scan', { searchBar: false });
   if (ctx.role !== 'provider') {
     if (ctx.role === 'customer') { clear(app).append(h('div', { class: 'card stack' }, h('p', { text: 'You are logged in as a customer. Log out to sign in as a partner.' }), h('button', { class: 'btn', type: 'button', text: 'Log out', onclick: () => logout('partner.html') }))); return; }
     loginView();

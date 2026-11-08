@@ -36,7 +36,7 @@ export function h(tag, attrs, ...kids) {
 }
 export function safeUrl(u) {
   const s = String(u ?? '');
-  if (/^(https:\/\/|tel:\+?\d+$|\/(?!\/)|\.\/|[a-z0-9_-]+\.html|#|blob:|data:image\/)/i.test(s) || s === '') return s;
+  if (/^(https:\/\/|tel:\+?\d+$|mailto:[^\s]+$|\/(?!\/)|\.\/|[a-z0-9_-]+\.html|#|blob:|data:image\/)/i.test(s) || s === '') return s;
   return '#';
 }
 export const $ = (sel, root = document) => root.querySelector(sel);
@@ -58,7 +58,81 @@ const ICONS = {
   history: 'M3 12a9 9 0 1 0 3-6.7L3 8m0-5v5h5m4-1v5l3 2',
   lock: 'M6 11h12v10H6zM8 11V7a4 4 0 0 1 8 0v4',
   filter: 'M3 5h18l-7 8v6l-4 2v-8z',
+  pin: 'M12 22s7-7.1 7-12.5A7 7 0 0 0 5 9.5C5 14.9 12 22 12 22zm0-9.5a3 3 0 1 0 0-6 3 3 0 0 0 0 6z',
+  chev: 'M6 9l6 6 6-6',
+  arrow: 'M5 12h14M13 6l6 6-6 6',
+  back: 'M15 18l-6-6 6-6',
+  fire: 'M12 22c4.4 0 7-2.9 7-6.6 0-3.6-2.4-5.4-3.6-8.4-.6 2-1.6 3.1-2.8 3.6.4-3.4-.9-6.6-3.6-8.6.3 3.3-1.5 5.6-3.1 7.6C4.6 11.3 5 13 5 15.4 5 19.1 7.6 22 12 22z',
+  phone: 'M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z',
+  mail: 'M3 6h18v12H3zM3 7l9 6 9-6',
+  share: 'M12 3v12M8 7l4-4 4 4M5 12v8h14v-8',
+  grid: 'M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z',
+  info: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zm0-11v6m0-9h.01',
+  tag: 'M3 12V3h9l9 9-9 9zM7.5 7.5h.01',
+  logout: 'M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9',
+  wa: 'M4 20l1.3-4A8 8 0 1 1 8 18.7zM9 9c0 3 3 6 6 6l1-1.5-2-1-1 1c-1 0-2.5-1.5-2.5-2.5l1-1-1-2z',
 };
+// Category icon set (admin picks one; stored as "i:<key>" in categories.icon)
+export const CAT_ICONS = {
+  food: 'M7 3v18M4 3v5a3 3 0 0 0 6 0V3M17 21V3c-2.2 0-4 2.7-4 7s1.8 5 4 5',
+  cafe: 'M4 9h13v4a6 6 0 0 1-6 6h-1a6 6 0 0 1-6-6zM17 10h1.5a2.5 2.5 0 0 1 0 5H17M8 3c0 1.5 1 1.5 1 3M12 3c0 1.5 1 1.5 1 3',
+  doc: 'M6 3H5v5a5 5 0 0 0 10 0V3h-1M10 13v2a5 5 0 0 0 10 0v-3M20 9a2 2 0 1 0 0 4 2 2 0 0 0 0-4',
+  salon: 'M6 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM20 4 8.1 15.9M14.5 14.5 20 20M8.1 8.1 12 12',
+  car: 'M5 17h14v-5l-2.2-5H7.2L5 12zM5 17v2.5M19 17v2.5M5 12h14M8 14.5h.01M16 14.5h.01',
+  shop: 'M6 8h12l1 13H5zM9 8V7a3 3 0 0 1 6 0v1',
+  gym: 'M6 7v10M18 7v10M3 10v4M21 10v4M6 12h12',
+  spa: 'M12 21c-4.5-1.5-8-5-8-9.5 3 0 6 1.5 8 4 2-2.5 5-4 8-4 0 4.5-3.5 8-8 9.5zM12 15.5c-1.3-3.5-1.3-7.5 0-11.5 1.3 4 1.3 8 0 11.5',
+  pharm: 'M10.5 3.5a5 5 0 0 1 7 7l-7 7a5 5 0 0 1-7-7zM7 10l7 7',
+  edu: 'M2 9l10-5 10 5-10 5zM6 11v5c3 2 9 2 12 0v-5M22 9v6',
+  hotel: 'M3 20V5M3 13h18v7M21 13a4 4 0 0 0-4-4h-6v4M7 11a2 2 0 1 0 0-.01',
+  pet: 'M8 13c2-2 6-2 8 0s2 6-4 6-6-4-4-6zM5 9a1.5 2 0 1 0 0-.01M9 5.5a1.5 2 0 1 0 0-.01M15 5.5a1.5 2 0 1 0 0-.01M19 9a1.5 2 0 1 0 0-.01',
+  fun: 'M4 7h16v10H4zM8 12h.01M12 10v4M10 12h4M16 11h.01M17 13h.01',
+  tech: 'M4 5h16v11H4zM2 19h20',
+  more: 'M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z',
+  pct: 'M12 2.5l2.3 1.7 2.9-.2.9 2.7 2.4 1.6-.9 2.7.9 2.7-2.4 1.6-.9 2.7-2.9-.2L12 21.5l-2.3-1.7-2.9.2-.9-2.7-2.4-1.6.9-2.7-.9-2.7 2.4-1.6.9-2.7 2.9.2zM9 15l6-6M9.5 9.5h.01M14.5 14.5h.01',
+};
+export function svgPath(d, cls = '', sw = '2') {
+  const ns = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(ns, 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24'); svg.setAttribute('fill', 'none'); svg.setAttribute('stroke', 'currentColor');
+  svg.setAttribute('stroke-width', sw); svg.setAttribute('stroke-linecap', 'round'); svg.setAttribute('stroke-linejoin', 'round');
+  svg.setAttribute('aria-hidden', 'true');
+  if (cls) svg.setAttribute('class', cls);
+  const p = document.createElementNS(ns, 'path'); p.setAttribute('d', d); svg.append(p);
+  return svg;
+}
+export function catIcon(iconValue, cls = 'cat-ic') {
+  const v = String(iconValue || '');
+  if (v.startsWith('i:') && CAT_ICONS[v.slice(2)]) return svgPath(CAT_ICONS[v.slice(2)], cls, '1.8');
+  if (v) return h('span', { class: 'cat-emoji', text: v });
+  return svgPath(CAT_ICONS.more, cls, '1.8');
+}
+
+// Brand wordmark (inline SVG so it uses the page font). Uploaded logo (settings.logo_path) wins.
+let logoSeq = 0;
+export function logoSVG() {
+  const ns = 'http://www.w3.org/2000/svg';
+  const id = `lg${++logoSeq}`;
+  const el = (tag, attrs) => { const e = document.createElementNS(ns, tag); for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v); return e; };
+  const svg = el('svg', { viewBox: '0 0 330 104', role: 'img', 'aria-label': 'XGo plus' });
+  const defs = el('defs', {});
+  const g = el('linearGradient', { id, x1: '0', y1: '0', x2: '1', y2: '0' });
+  g.append(el('stop', { offset: '0', 'stop-color': '#5b25d9' }), el('stop', { offset: '1', 'stop-color': '#a04dff' }));
+  defs.append(g); svg.append(defs);
+  svg.append(el('path', { d: 'M30 88 C 4 74, 14 40, 70 30 C 104 24, 142 28, 150 36', fill: 'none', stroke: `url(#${id})`, 'stroke-width': '7', 'stroke-linecap': 'round' }));
+  const t1 = el('text', { x: '16', y: '84', class: 'logo-xgo', fill: '#1d1452', 'font-family': 'Poppins, -apple-system, sans-serif', 'font-weight': '800', 'font-style': 'italic', 'font-size': '72', 'letter-spacing': '-5' });
+  t1.textContent = 'XGo';
+  const t2 = el('text', { x: '172', y: '86', fill: `url(#${id})`, 'font-family': 'Poppins, -apple-system, sans-serif', 'font-weight': '700', 'font-style': 'italic', 'font-size': '56', 'letter-spacing': '-1.5' });
+  t2.textContent = 'plus';
+  const pin = el('g', { transform: 'translate(156 2) scale(1.45)' });
+  pin.append(el('path', { d: 'M12 22s7-7.1 7-12.5A7 7 0 0 0 5 9.5C5 14.9 12 22 12 22z', fill: `url(#${id})` }), el('circle', { cx: '12', cy: '9.5', r: '2.8', fill: '#fff' }));
+  svg.append(t1, t2, pin);
+  return svg;
+}
+export function brandLogo() {
+  const lp = S('logo_path');
+  return lp ? h('img', { src: mediaUrl(lp), alt: S('site_title') }) : logoSVG();
+}
 export function icon(name, cls = '') {
   const ns = 'http://www.w3.org/2000/svg';
   const svg = document.createElementNS(ns, 'svg');
@@ -240,40 +314,183 @@ function navFor(ctx) {
       { href: 'partner.html#history', key: 'history', label: S('partner_history_title'), icon: 'clock' },
     ].filter(Boolean);
   }
-  const off = new Set(Array.isArray(S('app_disabled_modules')) ? S('app_disabled_modules') : []);
-  const items = [{ href: 'index.html', key: 'home', label: S('nav_home'), icon: 'home' }];
-  if (!off.has('membership')) items.push({ href: 'membership.html', key: 'membership', label: S('nav_membership'), icon: 'card' });
-  if (role === 'customer' && !off.has('complaints')) items.push({ href: 'report.html', key: 'report', label: S('nav_report'), icon: 'flag' });
+  const items = [
+    { href: 'index.html', key: 'home', label: S('nav_home'), icon: 'home' },
+    { href: 'offers.html', key: 'offers', label: S('nav_offers'), icon: 'tag' },
+  ];
+  if (moduleOn('membership')) items.push({ href: 'membership.html', key: 'membership', label: S('nav_membership'), icon: 'card' });
+  if (role === 'customer' && moduleOn('complaints')) items.push({ href: 'report.html', key: 'report', label: S('nav_report'), icon: 'flag' });
   if (role === 'guest' || role === 'none') items.push({ href: 'login.html', key: 'login', label: S('nav_login'), icon: 'login' });
-  else items.push({ href: 'account.html', key: 'account', label: S('nav_account'), icon: 'user' });
-  if (role === 'admin') items.push({ href: 'admin.html', key: 'admin', label: 'Admin', icon: 'shield' });
+  else items.push({ href: role === 'admin' ? 'admin.html' : 'account.html', key: 'account', label: role === 'admin' ? 'Admin' : S('nav_account'), icon: role === 'admin' ? 'shield' : 'user' });
   return items;
 }
+
+function categoriesDropdown() {
+  const menu = h('div', { class: 'navdrop-menu', hidden: true });
+  const btn = h('button', { type: 'button', 'aria-haspopup': 'true', 'aria-expanded': 'false' }, S('nav_categories'), icon('chev'));
+  const wrap = h('div', { class: 'navdrop' }, btn, menu);
+  let filled = false;
+  btn.addEventListener('click', async () => {
+    const open = menu.hidden;
+    menu.hidden = !open; btn.setAttribute('aria-expanded', String(open));
+    if (open && !filled) {
+      filled = true;
+      const cats = await loadCategories();
+      menu.append(...cats.map((c) => h('a', { href: `offers.html?cat=${encodeURIComponent(c.id)}` }, catIcon(c.icon), h('span', { text: c.name }))),
+        h('a', { href: 'offers.html' }, svgPath(CAT_ICONS.more, 'cat-ic', '1.8'), h('b', { text: S('all_categories') })));
+    }
+  });
+  document.addEventListener('pointerdown', (e) => { if (!wrap.contains(e.target)) { menu.hidden = true; btn.setAttribute('aria-expanded', 'false'); } });
+  return wrap;
+}
+
 export async function shell(active, { requireRole, searchBar } = {}) {
   await loadSettings();
   document.documentElement.dir = S('text_direction') === 'rtl' ? 'rtl' : 'ltr';
   const ctx = await getContext();
   if (requireRole && !requireRole.includes(ctx.role)) {
-    location.replace(ctx.role === 'provider' ? 'partner.html' : `login.html?next=${encodeURIComponent(location.pathname.split('/').pop() + location.search)}`);
+    location.replace(ctx.role === 'provider' ? 'partner.html' : `login.html?next=${encodeURIComponent(location.pathname.split('/').pop() + location.search + location.hash)}`);
     throw new Error('redirect');
   }
   const items = navFor(ctx);
-  const logoPath = S('logo_path');
-  const logo = h('a', { class: 'logo', href: ctx.role === 'provider' ? 'partner.html' : 'index.html', 'aria-label': S('site_title') },
-    logoPath ? h('img', { src: mediaUrl(logoPath), alt: S('site_title') }) : [S('site_title').replace(/\s*plus$/i, ''), h('span', { class: 'plus', text: 'Plus' })]);
-  const top = h('header', { class: 'topbar' }, logo,
-    h('nav', { class: 'topnav' }, items.map((i) => h('a', { href: i.href, class: i.key === active ? 'active' : '', text: i.label }))));
-  if (ctx.role !== 'provider' && searchBar !== false) {
-    import('./search.js').then((m) => m.mountSearch(top, typeof searchBar === 'string' ? searchBar : '')).catch(() => {});
+  const isProvider = ctx.role === 'provider';
+  const logo = h('a', { class: 'logo', href: isProvider ? 'partner.html' : 'index.html', 'aria-label': S('site_title') }, brandLogo());
+  const row = h('div', { class: 'head-row' }, logo);
+  if (isProvider) {
+    row.append(h('nav', { class: 'mainnav' }, items.map((i) => h('a', { href: i.href, class: i.key === active ? 'active' : '' }, icon(i.icon), i.label))),
+      h('div', { class: 'spacer' }),
+      ctx.provider?.area_name ? h('span', { class: 'area-pill', title: S('area_label') }, icon('pin', 'pin'), h('span', { text: ctx.provider.area_name })) : null,
+      h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Log out', onclick: () => logout('partner.html') }, icon('logout')));
+  } else {
+    const navEls = [
+      h('a', { href: 'index.html', class: active === 'home' ? 'active' : '' }, active === 'home' ? icon('home') : null, S('nav_home')),
+      h('a', { href: 'offers.html', class: active === 'offers' ? 'active' : '', text: S('nav_offers') }),
+      categoriesDropdown(),
+      h('a', { href: 'about.html', class: active === 'about' ? 'active' : '', text: S('nav_about') }),
+      h('a', { href: 'about.html#contact', text: S('nav_contact') }),
+    ];
+    const loggedIn = ctx.role !== 'guest' && ctx.role !== 'none';
+    const acctHref = ctx.role === 'admin' ? 'admin.html' : loggedIn ? 'account.html' : 'login.html';
+    const acctLabel = ctx.role === 'admin' ? 'Admin' : loggedIn ? (ctx.profile?.first_name || S('nav_account')) : S('nav_signup');
+    const searchToggle = h('button', { class: 'icon-btn head-search-toggle', type: 'button', 'aria-label': 'Search' }, icon('search'));
+    row.append(h('nav', { class: 'mainnav', 'aria-label': 'Main' }, navEls), h('div', { class: 'spacer' }),
+      areaPill(), searchToggle,
+      h('a', { class: 'login-pill', href: acctHref }, icon('user'), h('span', { text: acctLabel })),
+      h('a', { class: 'icon-btn head-account', href: acctHref, 'aria-label': acctLabel }, icon('user')));
+    if (searchBar !== false) {
+      import('./search.js').then((m) => {
+        const input = m.mountSearch(row, typeof searchBar === 'string' ? searchBar : '');
+        searchToggle.addEventListener('click', () => { input.closest('.hsearch').classList.toggle('open'); input.focus(); });
+        if (typeof searchBar === 'string' && searchBar) input.closest('.hsearch').classList.add('open');
+      }).catch(() => {});
+    } else {
+      searchToggle.addEventListener('click', () => { const i = document.querySelector('.hero-search input'); if (i) { i.scrollIntoView({ block: 'center', behavior: 'smooth' }); i.focus(); } else location.href = 'search.html'; });
+    }
   }
+  const top = h('header', { class: 'site-head' }, row);
   const tab = h('nav', { class: 'tabbar', 'aria-label': 'Main' },
     items.map((i) => h('a', { href: i.href, class: i.key === active ? 'active' : '', 'aria-current': i.key === active ? 'page' : null }, icon(i.icon), h('span', { text: i.label }))));
-  const foot = h('footer', { class: 'footer' }, S('footer_text'),
+  const foot = h('footer', { class: 'footer' }, S('footer_text'), ' · ', h('a', { href: 'about.html', text: S('nav_about') }),
     S('contact_phone') ? [' · ', h('a', { href: `tel:${S('contact_phone').replace(/[^\d+]/g, '')}`, text: S('contact_phone') })] : null);
   document.body.prepend(top);
   document.body.append(foot, tab);
   if (S('site_title')) document.title = document.title.replace('XGo Plus', S('site_title'));
+  registerSW();
+  if (!isProvider) setTimeout(maybeInstallPrompt, 2500);
   return ctx;
+}
+
+// ---------- areas (customer's chosen area is remembered on this device) ----------
+const AREA_KEY = 'xg-area';
+let areasPromise = null;
+export function loadAreas() {
+  if (!areasPromise) {
+    areasPromise = sb.from('areas').select('id,name').eq('is_active', true).order('sort_order').order('name').limit(200)
+      .then(({ data }) => data || []).catch(() => []);
+  }
+  return areasPromise;
+}
+export function getArea() { try { return localStorage.getItem(AREA_KEY) || ''; } catch { return ''; } }
+export async function currentArea() {
+  const id = getArea();
+  if (!id) return null;
+  const a = (await loadAreas()).find((x) => x.id === id);
+  if (!a) { try { localStorage.removeItem(AREA_KEY); } catch { /* */ } }
+  return a || null;
+}
+export function setArea(id) {
+  try { if (id) localStorage.setItem(AREA_KEY, id); else localStorage.removeItem(AREA_KEY); } catch { /* */ }
+}
+export function areaPill(extraClass = '') {
+  const label = h('span', { text: S('area_all') });
+  const btn = h('button', { class: `area-pill ${extraClass}`, type: 'button', 'aria-label': S('area_label') }, icon('pin', 'pin'), label, icon('chev', 'chev'));
+  currentArea().then((a) => { if (a) label.textContent = a.name; });
+  btn.addEventListener('click', pickArea);
+  return btn;
+}
+export async function pickArea() {
+  const areas = await loadAreas();
+  const cur = getArea();
+  const opt = (id, name) => h('button', { class: `area-opt${(cur || '') === id ? ' on' : ''}`, type: 'button', onclick: () => { setArea(id); location.reload(); } },
+    icon(id ? 'pin' : 'grid'), h('span', { class: 'grow', text: name }), (cur || '') === id ? icon('check') : null);
+  sheet(S('area_pick_title'), h('div', { class: 'area-list' }, opt('', S('area_all')), areas.map((a) => opt(a.id, a.name))));
+}
+
+// ---------- bottom sheet ----------
+export function sheet(title, ...content) {
+  const close = () => back.remove();
+  const back = h('div', { class: 'sheet-back', onclick: (e) => { if (e.target === back) close(); } },
+    h('div', { class: 'sheet', role: 'dialog', 'aria-modal': 'true', 'aria-label': title },
+      h('div', { class: 'row' }, h('h2', { class: 'grow', text: title }), h('button', { class: 'btn sm light', type: 'button', text: 'Close', onclick: close })),
+      ...content));
+  document.body.append(back);
+  return { close, el: back };
+}
+
+// ---------- installable app + "add to home screen" popup ----------
+let deferredInstall = null;
+addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); deferredInstall = e; });
+addEventListener('appinstalled', () => { try { localStorage.setItem('xg-install-dismissed', String(Date.now() + 3650 * 864e5)); } catch { /* */ } });
+export function isStandalone() {
+  try { if (new URLSearchParams(location.search).get('source') === 'pwa') sessionStorage.setItem('xg-pwa', '1'); } catch { /* */ }
+  return window.matchMedia?.('(display-mode: standalone)').matches || window.matchMedia?.('(display-mode: fullscreen)').matches
+    || navigator.standalone === true || (() => { try { return sessionStorage.getItem('xg-pwa') === '1'; } catch { return false; } })();
+}
+export function platform() {
+  const ua = navigator.userAgent || '';
+  if (/iPhone|iPad|iPod/i.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1)) return 'ios';
+  if (/Android/i.test(ua)) return 'android';
+  return 'other';
+}
+function registerSW() {
+  if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('/sw.js').catch(() => {});
+}
+export function maybeInstallPrompt(force = false) {
+  const plat = platform();
+  if (!force) {
+    if (isStandalone() || plat === 'other' || document.querySelector('.install-back')) return;
+    try { if (Number(localStorage.getItem('xg-install-dismissed') || 0) > Date.now()) return; } catch { return; }
+  }
+  const snooze = (days) => { try { localStorage.setItem('xg-install-dismissed', String(Date.now() + days * 864e5)); } catch { /* */ } };
+  const close = (days) => { snooze(days); back.remove(); };
+  const steps = String(S(plat === 'ios' ? 'install_ios_steps' : 'install_android_steps')).split('\n').filter(Boolean);
+  const list = h('ol', {}, steps.map((t, i) => h('li', {}, t, plat === 'ios' && i === 0 ? [' ', svgPath(ICONS.share, 'share-ic')] : null)));
+  const actions = h('div', { class: 'row' });
+  if (plat === 'android' && deferredInstall) {
+    actions.append(h('button', { class: 'btn light grow', type: 'button', text: S('install_later'), onclick: () => close(7) }),
+      h('button', { class: 'btn grow', type: 'button', text: S('install_button'), onclick: async () => {
+        try { deferredInstall.prompt(); const r = await deferredInstall.userChoice; close(r?.outcome === 'accepted' ? 3650 : 7); } catch { close(7); }
+      } }));
+  } else {
+    actions.append(h('button', { class: 'btn light grow', type: 'button', text: S('install_later'), onclick: () => close(7) }),
+      h('button', { class: 'btn grow', type: 'button', text: S('install_done'), onclick: () => close(30) }));
+  }
+  const back = h('div', { class: 'install-back', onclick: (e) => { if (e.target === back) close(7); } },
+    h('div', { class: 'install', role: 'dialog', 'aria-modal': 'true', 'aria-label': S('install_title') },
+      h('div', { class: 'install-head' }, h('img', { src: '/img/icon-192.png', alt: '' }),
+        h('div', {}, h('h2', { text: S('install_title') }), h('div', { class: 'small muted', text: S('install_text') }))),
+      plat === 'android' && deferredInstall ? null : list, actions));
+  document.body.append(back);
 }
 
 // Idle auto-logout (admin)
@@ -295,20 +512,21 @@ export function loadCategories() {
   return catsPromise;
 }
 export function providerCard(p) {
-  return h('a', { class: 'pcard', href: `provider.html?id=${encodeURIComponent(p.id)}` },
-    h('div', { class: 'logo-box' },
-      p.image_path
-        ? h('img', { src: mediaUrl(p.image_path), alt: '', loading: 'lazy', decoding: 'async', width: 300, height: 300 })
-        : h('span', { class: 'initial', text: initialOf(p.name) })),
-    h('div', { class: 'meta' },
-      h('div', { class: 'name', text: p.name }),
-      h('div', { class: 'off', text: `${pct(p.discount_percent)}${S('off_suffix')}` })));
+  const area = p.area?.name || p.area_name || '';
+  return h('a', { class: 'dcard', href: `provider.html?id=${encodeURIComponent(p.id)}` },
+    p.image_path
+      ? h('img', { src: mediaUrl(p.image_path), alt: '', loading: 'lazy', decoding: 'async', width: 400, height: 430 })
+      : h('div', { class: 'ph', text: initialOf(p.name) }),
+    h('span', { class: 'off' }, `${pct(p.discount_percent)}%`, h('small', { text: S('off_suffix').replace('%', '').trim() })),
+    h('div', { class: 'meta' }, h('span', { class: 'name', text: p.name }),
+      area ? h('span', { class: 'area' }, icon('pin'), h('span', { text: area })) : null));
 }
+export const PROVIDER_COLS = 'id,name,image_path,discount_percent,area:areas(name)';
 export function categoryChips(cats, selected, onPick) {
   const bar = h('div', { class: 'chips', role: 'tablist', 'aria-label': S('categories_heading') });
   const mk = (id, label, iconTxt) => {
     const b = h('button', { type: 'button', role: 'tab', class: `chip${(selected || '') === (id || '') ? ' active' : ''}`, 'aria-selected': String((selected || '') === (id || '')) },
-      iconTxt ? h('span', { class: 'chip-ic', text: iconTxt }) : null, h('span', { text: label }));
+      iconTxt ? catIcon(iconTxt) : null, h('span', { text: label }));
     b.addEventListener('click', () => {
       bar.querySelectorAll('.chip').forEach((c) => { c.classList.remove('active'); c.setAttribute('aria-selected', 'false'); });
       b.classList.add('active'); b.setAttribute('aria-selected', 'true');

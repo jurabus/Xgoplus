@@ -1,4 +1,4 @@
-import { sb, shell, S, h, $, clear, canonicalPhone, phoneEmail, errMsg, busy, param } from '../common.js';
+import { sb, shell, S, h, $, clear, canonicalPhone, phoneEmail, errMsg, busy, param, brandLogo } from '../common.js';
 
 const app = $('#app');
 async function main() {
@@ -40,7 +40,7 @@ async function main() {
     const next = param('next');
     location.replace(next && /^[a-z0-9_-]+\.html/i.test(next) ? next : 'membership.html');
   });
-  app.append(h('div', { class: 'auth stack' },
+  app.append(h('div', { class: 'auth stack' }, h('div', { class: 'auth-hero' }, brandLogo()),
     h('h1', { text: S('signup_title') }), h('p', { class: 'muted', text: S('signup_subtitle') }), form,
     h('p', { class: 'center' }, 'Already a member? ', h('a', { href: `login.html${location.search}`, text: S('login_button') }))));
 }
