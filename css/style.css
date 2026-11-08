@@ -543,3 +543,5 @@ input[type=file] { max-width: 100%; font-size: 14px; }
 /* section icons (Top Deals fire + category row titles) in brand yellow */
 .sec-head .fire, .cat-row-head h2 .cat-ic { color: var(--accent); filter: drop-shadow(0 2px 3px rgba(60, 24, 150, .25)); }
 .cat-row-head h2 .cat-emoji { filter: none; }
+/* category strip icons in brand yellow */
+.catbar .cat .cat-ic { color: var(--accent); filter: drop-shadow(0 2px 3px rgba(60, 24, 150, .25)); }
