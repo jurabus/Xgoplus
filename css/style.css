@@ -538,3 +538,5 @@ input[type=file] { max-width: 100%; font-size: 14px; }
 }
 /* discount text on cards in brand yellow */
 .dcard .off { color: var(--accent); }
+/* discount text in brand yellow on the partner page, partner portal and search suggestions too */
+.offpill, .sug-off { color: var(--accent); }
