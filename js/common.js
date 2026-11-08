@@ -10,6 +10,32 @@ if (window.top !== window.self) {
   throw new Error('framed');
 }
 
+// Show/hide password eye on every password field, wherever it is rendered
+const EYE = 'M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12zm10 3a3 3 0 1 0 0-6 3 3 0 0 0 0 6z';
+const EYE_OFF = 'M3 3l18 18M10.6 5.1A10.4 10.4 0 0 1 12 5c6.4 0 10 7 10 7a17.6 17.6 0 0 1-3.3 4.2M6.6 6.6C3.8 8.4 2 12 2 12s3.6 7 10 7a9.8 9.8 0 0 0 5.4-1.6M9.9 9.9a3 3 0 0 0 4.2 4.2';
+function enhancePasswords(root) {
+  (root.querySelectorAll ? root.querySelectorAll('input[type=password]:not([data-eye])') : []).forEach((inp) => {
+    inp.dataset.eye = '1';
+    const wrap = document.createElement('div'); wrap.className = 'pw-wrap';
+    inp.replaceWith(wrap); wrap.appendChild(inp);
+    const btn = document.createElement('button');
+    btn.type = 'button'; btn.className = 'pw-eye'; btn.setAttribute('aria-label', 'Show password');
+    const draw = () => { btn.replaceChildren(svgPath(inp.type === 'password' ? EYE : EYE_OFF)); };
+    btn.addEventListener('click', () => {
+      inp.type = inp.type === 'password' ? 'text' : 'password';
+      btn.setAttribute('aria-label', inp.type === 'password' ? 'Show password' : 'Hide password');
+      draw(); inp.focus();
+    });
+    draw(); wrap.appendChild(btn);
+  });
+}
+new MutationObserver((ms) => { for (const m of ms) m.addedNodes.forEach((n) => { if (n.nodeType === 1) enhancePasswords(n.matches?.('input[type=password]') ? n.parentNode || n : n); }); })
+  .observe(document.documentElement, { childList: true, subtree: true });
+
+// Never render "null"/"false" when a section is intentionally empty
+const nativeAppend = Element.prototype.append;
+Element.prototype.append = function append(...nodes) { return nativeAppend.apply(this, nodes.filter((n) => n != null && n !== false)); };
+
 export const sb = createClient(SUPABASE_URL, SUPABASE_KEY, {
   auth: { persistSession: true, autoRefreshToken: true, storageKey: 'xg-auth', detectSessionInUrl: false },
 });
@@ -114,19 +140,20 @@ export function logoSVG() {
   const ns = 'http://www.w3.org/2000/svg';
   const id = `lg${++logoSeq}`;
   const el = (tag, attrs) => { const e = document.createElementNS(ns, tag); for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v); return e; };
-  const svg = el('svg', { viewBox: '0 0 330 104', role: 'img', 'aria-label': 'XGo plus' });
+  const svg = el('svg', { viewBox: '0 0 236 104', role: 'img', 'aria-label': 'XGo+' });
   const defs = el('defs', {});
-  const g = el('linearGradient', { id, x1: '0', y1: '0', x2: '1', y2: '0' });
+  const g = el('linearGradient', { id, x1: '0', y1: '0', x2: '1', y2: '1' });
   g.append(el('stop', { offset: '0', 'stop-color': '#5b25d9' }), el('stop', { offset: '1', 'stop-color': '#a04dff' }));
   defs.append(g); svg.append(defs);
   svg.append(el('path', { d: 'M30 88 C 4 74, 14 40, 70 30 C 104 24, 142 28, 150 36', fill: 'none', stroke: `url(#${id})`, 'stroke-width': '7', 'stroke-linecap': 'round' }));
   const t1 = el('text', { x: '16', y: '84', class: 'logo-xgo', fill: '#1d1452', 'font-family': 'Poppins, -apple-system, sans-serif', 'font-weight': '800', 'font-style': 'italic', 'font-size': '72', 'letter-spacing': '-5' });
   t1.textContent = 'XGo';
-  const t2 = el('text', { x: '172', y: '86', fill: `url(#${id})`, 'font-family': 'Poppins, -apple-system, sans-serif', 'font-weight': '700', 'font-style': 'italic', 'font-size': '56', 'letter-spacing': '-1.5' });
-  t2.textContent = 'plus';
-  const pin = el('g', { transform: 'translate(156 2) scale(1.45)' });
+  // the "+" (rounded, slightly slanted like the italic text)
+  svg.append(t1, el('path', { d: 'M188 40a7 7 0 0 1 14 0v14h14a7 7 0 0 1 0 14h-14v14a7 7 0 0 1-14 0V68h-14a7 7 0 0 1 0-14h14z',
+    fill: `url(#${id})`, transform: 'skewX(-8) translate(10 0)' }));
+  const pin = el('g', { transform: 'translate(176 -2) scale(1.15)' });
   pin.append(el('path', { d: 'M12 22s7-7.1 7-12.5A7 7 0 0 0 5 9.5C5 14.9 12 22 12 22z', fill: `url(#${id})` }), el('circle', { cx: '12', cy: '9.5', r: '2.8', fill: '#fff' }));
-  svg.append(t1, t2, pin);
+  svg.append(pin);
   return svg;
 }
 export function brandLogo() {
@@ -469,7 +496,7 @@ export async function shell(active, { requireRole, searchBar } = {}) {
     S('contact_phone') ? [' · ', h('a', { href: `tel:${S('contact_phone').replace(/[^\d+]/g, '')}`, text: S('contact_phone') })] : null);
   document.body.prepend(top);
   document.body.append(foot, tab);
-  if (S('site_title')) document.title = document.title.replace('XGo Plus', S('site_title'));
+  if (S('site_title')) document.title = document.title.replace('XGo+', S('site_title'));
   registerSW();
   if (!isProvider) setTimeout(maybeInstallPrompt, 2500);
   return ctx;

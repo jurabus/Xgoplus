@@ -490,3 +490,35 @@ input[type=file] { max-width: 100%; font-size: 14px; }
 .quickpay { background: #fff; color: #4b2a8a; box-shadow: none; }
 .quickpay svg { width: 22px; height: 22px; }
 .quickpay-fail { background: rgba(255, 201, 40, .18); border: 1px solid rgba(255, 201, 40, .5); border-radius: 12px; padding: 10px 12px; }
+
+/* ---------- show password ---------- */
+.pw-wrap { position: relative; }
+.pw-wrap .input { padding-right: 48px; }
+.pw-eye { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); width: 42px; height: 42px; border: 0; background: none; color: var(--muted); display: flex; align-items: center; justify-content: center; cursor: pointer; border-radius: 10px; }
+.pw-eye svg { width: 22px; height: 22px; }
+.pw-eye:hover { color: var(--brand); }
+[dir="rtl"] .pw-wrap .input { padding-right: 14px; padding-left: 48px; }
+[dir="rtl"] .pw-eye { right: auto; left: 4px; }
+
+/* ---------- slimmer search bar (half height) ---------- */
+.hsearch .input, .head-row .hsearch .input { min-height: 30px; padding: 4px 40px 4px 10px; font-size: 15px; }
+.hsearch .s-ic { width: 18px; height: 18px; margin-left: 12px; }
+.search-clear { width: 28px; height: 28px; right: 4px; }
+.hsearch .area-pill { min-height: 26px; padding: 0 10px; font-size: 12px; }
+.hsearch .area-pill .pin { width: 15px; height: 15px; }
+
+/* ---------- slimmer category bar (half height): icon + label in one line ---------- */
+.catbar { padding: 6px; border-radius: 18px; margin-bottom: 16px; }
+.cat { flex: 0 0 auto; flex-direction: row; gap: 8px; min-height: 48px; padding: 6px 14px; font-size: 13px; white-space: nowrap; }
+.cat .cat-ic { width: 24px; height: 24px; }
+.cat .cat-emoji { font-size: 20px; line-height: 24px; }
+.cat + .cat::before { top: 25%; bottom: 25%; }
+@media (min-width: 980px) { .cat { flex: 1 0 auto; justify-content: center; min-height: 58px; font-size: 15px; } .cat .cat-ic { width: 28px; height: 28px; } }
+
+/* ---------- category rows on home ---------- */
+.cat-row-head h2 { font-size: 20px; }
+.cat-row-head h2 .cat-ic { width: 26px; height: 26px; color: var(--brand); }
+@media (min-width: 980px) { .cat-row-head h2 { font-size: 24px; } .deals .dcard { flex-basis: calc(20% - 12px); } }
+.view-all-wrap { display: flex; justify-content: center; margin: 22px 0 6px; }
+.view-all-wrap .btn { min-width: 240px; }
+.deals .dcard { content-visibility: visible; }

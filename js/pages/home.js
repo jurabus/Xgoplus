@@ -45,20 +45,44 @@ async function banners() {
   }));
 }
 
-async function topDeals() {
+function dealsRow(items) {
+  return h('div', { class: 'deals' }, items.map(providerCard));
+}
+
+// Top deals (10 best, spread across categories) + up to 5 category rows of 10 — one database call.
+async function feed() {
   const area = getArea();
-  const { data } = await selectProviders((cols, withAreas) => {
+  const { data, error } = await sb.rpc('home_feed', { p_area: area || null, p_top: 10, p_rows: 5, p_per_row: 10 });
+  if (!error && data) return data;
+  // database update 010 not installed yet: simple top deals
+  const r = await selectProviders((cols, withAreas) => {
     let q = sb.from('providers').select(cols).eq('is_active', true)
-      .order('discount_percent', { ascending: false }).order('sort_order').order('name').limit(12);
+      .order('discount_percent', { ascending: false }).order('sort_order').order('name').limit(10);
     if (area && withAreas) q = q.eq('area_id', area);
     return q;
   });
+  return { top: r.data || [], rows: [] };
+}
+
+async function dealSections() {
+  const [f, cats] = await Promise.all([feed(), loadCategories()]);
   const words = String(S('top_deals_title')).split(' ');
-  const head = h('div', { class: 'sec-head' },
-    h('h2', {}, icon('fire', 'fire'), words[0], words.length > 1 ? [' ', h('em', { text: words.slice(1).join(' ') })] : null),
-    h('a', { href: 'offers.html' }, S('view_all_offers'), icon('arrow')));
-  const body = data?.length ? h('div', { class: 'deals' }, data.map(providerCard)) : h('div', { class: 'empty', text: S('home_empty') });
-  return h('section', {}, head, body);
+  const out = [h('section', {},
+    h('div', { class: 'sec-head' },
+      h('h2', {}, icon('fire', 'fire'), words[0], words.length > 1 ? [' ', h('em', { text: words.slice(1).join(' ') })] : null),
+      h('a', { href: 'offers.html' }, S('view_all_offers'), icon('arrow'))),
+    f.top.length ? dealsRow(f.top) : h('div', { class: 'empty', text: S('home_empty') }))];
+  const iconOf = new Map(cats.map((c) => [c.id, c.icon]));
+  for (const row of f.rows || []) {
+    if (!row.items?.length) continue;
+    out.push(h('section', { class: 'cat-row' },
+      h('div', { class: 'sec-head cat-row-head' },
+        h('h2', {}, catIcon(row.icon || iconOf.get(row.id)), h('span', { text: row.name })),
+        h('a', { href: `offers.html?cat=${encodeURIComponent(row.id)}` }, S('view_all'), icon('arrow'))),
+      dealsRow(row.items)));
+  }
+  out.push(h('div', { class: 'view-all-wrap' }, h('a', { class: 'btn pill', href: 'offers.html' }, S('view_all_offers'), icon('arrow'))));
+  return out;
 }
 
 function promo(ctx) {
@@ -72,10 +96,10 @@ async function main() {
   const ctx = await shell('home', { searchBar: false });
   clear(app);
   const catSlot = h('div'), bannerSlot = h('div'), dealsSlot = h('div', {}, h('div', { class: 'spinner' }));
-  app.append(hero(), catSlot, dealsSlot, bannerSlot, promo(ctx));
-  const [cats, deals, bans] = await Promise.all([categoryStrip(), topDeals(), banners().catch(() => null)]);
+  app.append(hero(), catSlot, bannerSlot, dealsSlot, promo(ctx));
+  const [cats, deals, bans] = await Promise.all([categoryStrip(), dealSections(), banners().catch(() => null)]);
   if (cats) catSlot.append(cats);
-  clear(dealsSlot).append(deals);
+  clear(dealsSlot).append(...deals);
   if (bans) bannerSlot.append(bans);
 }
 main().catch((e) => { if (e?.message !== 'redirect') console.error(e); });

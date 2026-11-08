@@ -395,10 +395,11 @@ end $$;
 create or replace function public.schema_status() returns jsonb
 language sql stable security definer set search_path = '' as $$
   select jsonb_build_object(
-    'version', 9,
+    'version', 10,
     'm005', to_regclass('public.categories') is not null,
     'm006', to_regclass('public.complaints') is not null,
     'm007', to_regclass('public.areas') is not null,
     'm008', to_regclass('public.membership_requests') is not null,
-    'm009', to_regclass('public.trials') is not null)
+    'm009', to_regclass('public.trials') is not null,
+    'm010', to_regprocedure('public.home_feed(uuid, integer, integer, integer)') is not null)
 $$;
