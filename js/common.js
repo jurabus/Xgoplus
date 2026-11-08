@@ -149,8 +149,11 @@ export function logoSVG() {
   const t1 = el('text', { x: '16', y: '84', class: 'logo-xgo', fill: '#1d1452', 'font-family': 'Poppins, -apple-system, sans-serif', 'font-weight': '800', 'font-style': 'italic', 'font-size': '72', 'letter-spacing': '-5' });
   t1.textContent = 'XGo';
   // the "+" (rounded, slightly slanted like the italic text)
-  svg.append(t1, el('path', { d: 'M188 40a7 7 0 0 1 14 0v14h14a7 7 0 0 1 0 14h-14v14a7 7 0 0 1-14 0V68h-14a7 7 0 0 1 0-14h14z',
-    fill: `url(#${id})`, transform: 'skewX(-8) translate(10 0)' }));
+  // brand "+" is yellow everywhere (soft purple shadow keeps it readable on white)
+  const PLUS = 'M188 40a7 7 0 0 1 14 0v14h14a7 7 0 0 1 0 14h-14v14a7 7 0 0 1-14 0V68h-14a7 7 0 0 1 0-14h14z';
+  svg.append(t1,
+    el('path', { d: PLUS, fill: '#3c1896', opacity: '.28', transform: 'skewX(-8) translate(12.5 3.5)' }),
+    el('path', { d: PLUS, class: 'logo-plus', fill: '#ffc928', transform: 'skewX(-8) translate(10 0)' }));
   const pin = el('g', { transform: 'translate(176 -2) scale(1.15)' });
   pin.append(el('path', { d: 'M12 22s7-7.1 7-12.5A7 7 0 0 0 5 9.5C5 14.9 12 22 12 22z', fill: `url(#${id})` }), el('circle', { cx: '12', cy: '9.5', r: '2.8', fill: '#fff' }));
   svg.append(pin);
