@@ -1,5 +1,5 @@
 // Partner categories (filter chips on the home + search pages).
-import { sb, h, clear, errMsg, busy, toast, confirmDialog, mediaUrl, uploadImage } from '../common.js';
+import { sb, h, clear, errMsg, busy, toast, confirmDialog, mediaUrl, uploadImage, catIcon, CAT_ICONS } from '../common.js';
 import { sheet, field, input, checkbox } from './ui.js';
 
 let root;
@@ -8,7 +8,7 @@ function catSheet(c, nextSort) {
   const isNew = !c;
   c = c || { name: '', icon: '', image_path: null, sort_order: nextSort, is_active: true };
   let imagePath = c.image_path;
-  const slot = h('div', {}, imagePath ? h('img', { class: 'preview', src: mediaUrl(imagePath), alt: '' }) : h('div', { class: 'preview thumb', text: c.icon || '+' }));
+  const slot = h('div', {}, imagePath ? h('img', { class: 'preview', src: mediaUrl(imagePath), alt: '' }) : h('div', { class: 'preview thumb', text: '+' }));
   const file = h('input', { type: 'file', accept: 'image/*' });
   file.addEventListener('change', async () => {
     if (!file.files[0]) return;
@@ -16,14 +16,21 @@ function catSheet(c, nextSort) {
     catch (e) { toast(errMsg(e), 'bad'); }
   });
   const name = input({ maxlength: 60, value: c.name, placeholder: 'e.g. Cafés' });
-  const ic = input({ maxlength: 8, value: c.icon, placeholder: 'Emoji, e.g. ☕' });
+  const ic = input({ maxlength: 8, value: c.icon.startsWith('i:') ? '' : c.icon, placeholder: 'or type an emoji, e.g. ☕' });
+  let iconKey = c.icon.startsWith('i:') ? c.icon : '';
+  const pick = h('div', { class: 'iconpick' }, Object.keys(CAT_ICONS).map((k) => {
+    const b = h('button', { type: 'button', class: `i:${k}` === iconKey ? 'on' : '', 'aria-label': k, title: k }, catIcon(`i:${k}`));
+    b.addEventListener('click', () => { iconKey = `i:${k}`; ic.value = ''; pick.querySelectorAll('button').forEach((x) => x.classList.toggle('on', x === b)); });
+    return b;
+  }));
+  ic.addEventListener('input', () => { if (ic.value.trim()) { iconKey = ''; pick.querySelectorAll('button').forEach((x) => x.classList.remove('on')); } });
   const sort = input({ type: 'number', step: 1, value: c.sort_order });
   const active = checkbox(c.is_active);
   const err = h('div', { class: 'form-error' });
   const save = h('button', { class: 'btn block', type: 'submit', text: 'Save' });
   const del = isNew ? null : h('button', { class: 'btn block danger', type: 'button', text: 'Delete category' });
   const form = h('form', { class: 'stack' },
-    field('Name', name), field('Icon (emoji, shown on the filter chip)', ic),
+    field('Name', name), h('div', { class: 'field' }, h('span', { class: 'lbl', text: 'Icon' }), pick), ic,
     h('div', { class: 'img-pick' }, slot, file), h('small', { class: 'muted', text: 'Image is optional (used in future category pages).' }),
     field('Sort order (lower shows first)', sort),
     h('label', { class: 'switch' }, h('span', { text: 'Visible' }), active), err, save, del);
@@ -31,7 +38,7 @@ function catSheet(c, nextSort) {
   form.addEventListener('submit', async (e) => {
     e.preventDefault(); err.textContent = '';
     if (!name.value.trim()) { err.textContent = 'Enter a name.'; return; }
-    const row = { name: name.value.trim(), icon: ic.value.trim(), image_path: imagePath, sort_order: Math.trunc(Number(sort.value) || 0), is_active: active.checked };
+    const row = { name: name.value.trim(), icon: ic.value.trim() || iconKey, image_path: imagePath, sort_order: Math.trunc(Number(sort.value) || 0), is_active: active.checked };
     busy(save, true);
     const { error } = isNew ? await sb.from('categories').insert(row) : await sb.from('categories').update(row).eq('id', c.id);
     busy(save, false);
@@ -75,7 +82,7 @@ async function draw() {
   if (!data.length) list.append(h('div', { class: 'empty', text: 'No categories yet.' }));
   data.forEach((c, i) => list.append(h('div', { class: 'item' },
     h('button', { class: 'btn-reset row grow', type: 'button', onclick: () => catSheet(c) },
-      c.image_path ? h('img', { class: 'thumb', src: mediaUrl(c.image_path), alt: '' }) : h('div', { class: 'thumb', text: c.icon || c.name[0] }),
+      c.image_path ? h('img', { class: 'thumb', src: mediaUrl(c.image_path), alt: '' }) : h('div', { class: 'thumb' }, catIcon(c.icon)),
       h('div', { class: 'grow' }, h('div', { class: 'ellipsis' }, h('b', { text: c.name })), h('div', { class: 'small muted', text: `${n.get(c.id) || 0} providers${c.is_active ? '' : ' · hidden'}` }))),
     h('button', { class: 'btn sm light', type: 'button', 'aria-label': 'Move up', text: '↑', disabled: i === 0, onclick: () => move(data, i, -1) }),
     h('button', { class: 'btn sm light', type: 'button', 'aria-label': 'Move down', text: '↓', disabled: i === data.length - 1, onclick: () => move(data, i, 1) }))));

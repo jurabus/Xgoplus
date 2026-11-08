@@ -332,6 +332,7 @@ grant execute on function public.admin_stats() to authenticated;
 -- 5) Search: optional minimum discount
 -- ---------------------------------------------------------------------
 drop function if exists public.search_providers(text, uuid, int, int);
+drop function if exists public.search_providers(text, uuid, int, int, numeric, uuid);  -- 007's version (re-run safety)
 create or replace function public.search_providers(
   p_q text, p_category uuid default null, p_limit int default 20, p_offset int default 0, p_min_discount numeric default null
 ) returns table (id uuid, name text, image_path text, discount_percent numeric, category_id uuid)

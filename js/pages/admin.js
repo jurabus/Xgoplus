@@ -1,11 +1,12 @@
 // Admin panel shell: email+password login, admins checked in the database,
 // idle auto-logout, one tab per feature (js/admin/<tab>.js).
-import { sb, loadSettings, S, h, $, clear, errMsg, busy, getContext, logout, idleLogout } from '../common.js';
+import { sb, loadSettings, S, h, $, clear, errMsg, busy, getContext, logout, idleLogout, brandLogo } from '../common.js';
 
 const TABS = [
   { id: 'dashboard', title: 'Dashboard' },
   { id: 'providers', title: 'Providers' },
   { id: 'categories', title: 'Categories' },
+  { id: 'areas', title: 'Areas' },
   { id: 'members', title: 'Members' },
   { id: 'banners', title: 'Banners' },
   { id: 'texts', title: 'Texts & settings' },
@@ -33,7 +34,7 @@ function loginView(msg = '') {
     if (c.role !== 'admin') { await sb.auth.signOut(); busy(btn, false); err.textContent = 'This account is not an admin.'; return; }
     location.reload();
   });
-  clear(app).append(h('div', { class: 'auth stack' }, h('h1', { text: 'Admin' }), form,
+  clear(app).append(h('div', { class: 'auth stack' }, h('div', { class: 'auth-hero' }, brandLogo()), h('h1', { text: 'Admin' }), form,
     h('p', { class: 'center small' }, h('a', { href: 'index.html', text: '← Website' }))));
 }
 
@@ -46,9 +47,9 @@ async function main() {
     return;
   }
   idleLogout(20, 'admin.html');
-  const top = h('header', { class: 'topbar' },
-    h('a', { class: 'logo', href: 'index.html' }, S('site_title').replace(/\s*plus$/i, ''), h('span', { class: 'plus', text: 'Admin' })),
-    h('button', { class: 'btn sm light', type: 'button', text: 'Log out', onclick: () => logout('admin.html') }));
+  const top = h('header', { class: 'site-head' }, h('div', { class: 'head-row' },
+    h('a', { class: 'logo', href: 'index.html' }, brandLogo()), h('span', { class: 'badge brand', text: 'Admin' }), h('div', { class: 'spacer' }),
+    h('button', { class: 'btn sm light', type: 'button', text: 'Log out', onclick: () => logout('admin.html') })));
   document.body.prepend(top);
   const nav = h('div', { class: 'admin-tabs', role: 'tablist' });
   const body = h('div', { id: 'tab-body' });

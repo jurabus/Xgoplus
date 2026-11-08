@@ -1,15 +1,7 @@
 // Small UI helpers shared by admin tabs.
 import { h, clear } from '../common.js';
 
-export function sheet(title, ...content) {
-  const close = () => { back.remove(); document.body.classList.remove('noscroll'); };
-  const back = h('div', { class: 'sheet-back', onclick: (e) => { if (e.target === back) close(); } },
-    h('div', { class: 'sheet', role: 'dialog', 'aria-modal': 'true', 'aria-label': title },
-      h('div', { class: 'row' }, h('h2', { class: 'grow', text: title }), h('button', { class: 'btn sm light', type: 'button', text: 'Close', onclick: close })),
-      ...content));
-  document.body.append(back);
-  return { close, el: back };
-}
+export { sheet } from '../common.js';
 export const field = (label, input, hint) => h('label', { class: 'field' }, h('span', { text: label }), input, hint ? h('small', { class: 'muted', text: hint }) : null);
 export const input = (attrs = {}) => h('input', { class: 'input', ...attrs });
 export function textarea(value = '', attrs = {}) { const t = h('textarea', { class: 'input', ...attrs }); t.value = value; return t; }

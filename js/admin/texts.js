@@ -3,7 +3,10 @@ import { sb, h, clear, errMsg, busy, toast, DEFAULTS, loadSettings, bustSettings
 import { field, input, textarea, checkbox } from './ui.js';
 
 const GROUPS = [
-  ['General', /^(site_title|tagline|text_direction|footer_text|contact_)/],
+  ['General', /^(site_title|tagline|text_direction|footer_text)/],
+  ['Home hero & sections', /^(hero_|top_deals|view_all|all_categories|offers_title|membership_promo|area_)/],
+  ['About & contact', /^(about_|contact_)/],
+  ['Install-app popup', /^install_/],
   ['Home & partner page', /^(home_|off_suffix|provider_|categor)/],
   ['Search', /^search_/],
   ['Navigation', /^nav_/],
@@ -33,8 +36,20 @@ export async function render(root) {
     catch (e) { toast(errMsg(e), 'bad'); }
   });
 
+  let heroPath = stored.hero_image_path || '';
+  const heroSlot = h('div', {}, h('img', { class: 'preview', src: heroPath ? mediaUrl(heroPath) : '/img/hero.webp', alt: '' }));
+  const heroFile = h('input', { type: 'file', accept: 'image/*' });
+  const heroClear = h('button', { class: 'btn sm light', type: 'button', text: 'Use default art', onclick: () => { heroPath = ''; clear(heroSlot).append(h('img', { class: 'preview', src: '/img/hero.webp', alt: '' })); } });
+  heroFile.addEventListener('change', async () => {
+    if (!heroFile.files[0]) return;
+    try { heroPath = await uploadImage('settings', heroFile.files[0], 1600); clear(heroSlot).append(h('img', { class: 'preview', src: mediaUrl(heroPath), alt: '' })); }
+    catch (e) { toast(errMsg(e), 'bad'); }
+  });
   const form = h('form', { class: 'stack' });
-  form.append(h('div', { class: 'card stack' }, h('b', { text: 'Logo' }), h('div', { class: 'img-pick' }, logoSlot, h('div', { class: 'stack' }, logoFile, logoClear))));
+  form.append(h('div', { class: 'card stack' }, h('b', { text: 'Logo' }), h('small', { class: 'muted', text: 'Upload your logo (PNG with transparent background works best), or keep the built-in XGo plus logo.' }),
+    h('div', { class: 'img-pick' }, logoSlot, h('div', { class: 'stack' }, logoFile, logoClear))));
+  form.append(h('div', { class: 'card stack' }, h('b', { text: 'Home hero image' }), h('small', { class: 'muted', text: 'Shown next to the headline on the home page. Wide image, about 1300×780.' }),
+    h('div', { class: 'img-pick' }, heroSlot, h('div', { class: 'stack' }, heroFile, heroClear))));
   const keys = Object.keys(DEFAULTS).filter((k) => !SKIP.has(k));
   const used = new Set();
   for (const [title, re] of [...GROUPS, ['Other', /.*/]]) {
@@ -78,6 +93,7 @@ export async function render(root) {
       if (v === def || v === '') delete data[k]; else data[k] = v;
     }
     if (logoPath) data.logo_path = logoPath; else delete data.logo_path;
+    if (heroPath) data.hero_image_path = heroPath; else delete data.hero_image_path;
     busy(save, true);
     const { error } = await sb.from('settings').update({ data, updated_at: new Date().toISOString() }).eq('id', 1);
     busy(save, false);

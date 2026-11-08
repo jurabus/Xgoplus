@@ -1,21 +1,22 @@
-// Header search (Amazon-style): live top-5 suggestions with image + name,
+// Search box (Amazon-style): live top-5 suggestions with image, name, area and % off;
 // "View all" -> search.html?q=… . Typo tolerance is done by the database.
-import { sb, S, h, clear, icon, mediaUrl, pct, initialOf } from './common.js';
+// Results respect the customer's chosen area.
+import { sb, S, h, clear, icon, mediaUrl, pct, initialOf, getArea, areaPill } from './common.js';
 
 export const SUGGEST_LIMIT = 5;
 
-export function mountSearch(topbar, initial = '') {
+export function mountSearch(container, initial = '', { hero = false } = {}) {
   const input = h('input', {
     class: 'input', type: 'search', enterkeyhint: 'search', autocomplete: 'off', autocapitalize: 'none', spellcheck: 'false',
     placeholder: S('search_placeholder'), 'aria-label': S('search_placeholder'), maxlength: 60,
-    role: 'combobox', 'aria-expanded': 'false', 'aria-controls': 'search-pop', 'aria-autocomplete': 'list',
+    role: 'combobox', 'aria-expanded': 'false', 'aria-controls': hero ? 'search-pop-hero' : 'search-pop', 'aria-autocomplete': 'list',
   });
   input.value = initial;
   const clearBtn = h('button', { class: 'search-clear', type: 'button', 'aria-label': 'Clear', hidden: !initial }, icon('x'));
-  const go = h('button', { class: 'search-go', type: 'submit', 'aria-label': 'Search' }, icon('search'));
-  const pop = h('div', { class: 'search-pop', id: 'search-pop', role: 'listbox', hidden: true });
-  const form = h('form', { class: 'hsearch', role: 'search', action: 'search.html' }, input, clearBtn, go, pop);
-  topbar.append(form);
+  const pop = h('div', { class: 'search-pop', id: hero ? 'search-pop-hero' : 'search-pop', role: 'listbox', hidden: true });
+  const form = h('form', { class: `hsearch${hero ? ' with-area' : ''}`, role: 'search', action: 'search.html' },
+    icon('search', 's-ic'), input, clearBtn, hero ? areaPill() : null, pop);
+  container.append(form);
 
   let seq = 0, timer = 0, active = -1, items = [];
   const open = (on) => { pop.hidden = !on; input.setAttribute('aria-expanded', String(on)); };
@@ -33,13 +34,15 @@ export function mountSearch(topbar, initial = '') {
     const my = ++seq;
     if (!pop.childElementCount) pop.append(h('div', { class: 'spinner' }));
     open(true);
-    const { data, error } = await sb.rpc('search_providers', { p_q: q, p_category: null, p_limit: SUGGEST_LIMIT, p_offset: 0, p_min_discount: null });
+    const { data, error } = await sb.rpc('search_providers', {
+      p_q: q, p_category: null, p_limit: SUGGEST_LIMIT, p_offset: 0, p_min_discount: null, p_area: getArea() || null,
+    });
     if (my !== seq) return; // a newer keystroke won
     clear(pop); active = -1;
     if (error) { pop.append(h('div', { class: 'search-empty', text: 'Search is unavailable right now.' })); return; }
     items = data.map((p, i) => h('a', { class: 'sug', role: 'option', id: `sug-${i}`, href: `provider.html?id=${encodeURIComponent(p.id)}` },
-      p.image_path ? h('img', { src: mediaUrl(p.image_path), alt: '', loading: 'lazy', width: 44, height: 44 }) : h('span', { class: 'thumb', text: initialOf(p.name) }),
-      h('span', { class: 'sug-name' }, highlight(p.name, q)),
+      p.image_path ? h('img', { src: mediaUrl(p.image_path), alt: '', loading: 'lazy', width: 48, height: 48 }) : h('span', { class: 'thumb', text: initialOf(p.name) }),
+      h('span', { class: 'sug-name' }, h('span', {}, highlight(p.name, q)), p.area_name ? h('span', { class: 'sug-area', text: p.area_name }) : null),
       h('span', { class: 'sug-off', text: `${pct(p.discount_percent)}%` })));
     if (!items.length) pop.append(h('div', { class: 'search-empty', text: `${S('search_no_results')} “${q}”` }));
     pop.append(...items);

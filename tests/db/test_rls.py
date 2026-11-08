@@ -468,6 +468,38 @@ def main():
     res = [r[0] for r in ok(G, "select discount_percent from public.search_providers('a', null, 20, 0, 20)")]
     check("search min discount", res and min(res) >= 20, str(res))
 
+    # ------------------------------------------------------------ 007: areas + Sunday weeks
+    areas = [r[0] for r in ok(G, "select name from public.areas order by sort_order")]
+    check("starter areas", areas == ["6th of October", "Sheikh Zayed"], str(areas))
+    for who in (G, c1, p1u):
+        denied("non-admin cannot add area", who, "insert into public.areas (name) values ('x')")
+    ok(p1u, "update public.areas set name='hacked'")
+    check("provider cannot rename area", ok(None, "select count(*) from public.areas where name='hacked'")[0][0] == 0)
+    zayed = ok(None, "select id from public.areas where name='Sheikh Zayed'")[0][0]
+    octo = ok(None, "select id from public.areas where name='6th of October'")[0][0]
+    new_area = ok(A, "insert into public.areas (name, sort_order) values ('New <i>Cairo</i>', 30) returning id, name")[0]
+    check("area name sanitized", new_area[1] == "New iCairo/i", str(new_area))
+    denied("provider cannot set own area", p3u, "update public.providers set area_id=%s where id=%s", (zayed, p3))
+    ok(A, "select public.admin_update_provider(%s, %s)", (p3, json.dumps({"area_id": str(zayed)})))
+    ok(A, "select public.admin_update_provider(id, %s) from public.providers where name='Power Gym'", (json.dumps({"area_id": str(octo)}),))
+    check("guest sees area id", ok(G, "select area_id from public.providers where id=%s", (p3,))[0][0] == zayed)
+    r = ok(G, "select name, area_name from public.search_providers('cafe', null, 20, 0, null, %s)", (zayed,))
+    check("search filtered by area with area name", r == [("Limit Cafe", "Sheikh Zayed")], str(r))
+    r = [x[0] for x in ok(G, "select name from public.search_providers('gym', null, 20, 0, null, %s)", (zayed,))]
+    check("search area excludes other areas", "Power Gym" not in r, str(r))
+    check("provider context has area", ok(p3u, "select public.get_my_context()->'provider'->>'area_name'")[0][0] == "Sheikh Zayed")
+    ok(A, "update public.areas set is_active=false where id=%s", (new_area[0],))
+    check("hidden area not public", "New iCairo/i" not in [r[0] for r in ok(G, "select name from public.areas")])
+    check("admin area counts", any(r[0] == zayed for r in ok(A, "select * from public.admin_area_counts()")))
+    ok(A, "delete from public.areas where id=%s", (zayed,))
+    check("deleting area un-assigns", ok(None, "select area_id from public.providers where id=%s", (p3,))[0][0] is None)
+    wk = ok(None, "select private.period_start('week', '2026-11-11 10:00'::timestamp)::date::text, private.period_start('week', '2026-11-08 23:00'::timestamp)::date::text, private.period_start('week', '2026-11-14 23:59'::timestamp)::date::text")[0]
+    check("weeks start on Sunday", wk == ("2026-11-08", "2026-11-08", "2026-11-08"), str(wk))
+    ok(A, "select public.admin_update_provider(%s, '{\"limit_count\": 2, \"limit_period\": \"week\"}')", (p3,))
+    u = ok(c4, "select public.my_provider_usage(%s)", (p3,))[0][0]
+    rs = ok(None, "select extract(dow from (%s::timestamptz at time zone 'Africa/Cairo'))::int, (%s::timestamptz at time zone 'Africa/Cairo')::time::text", (u["resets_at"], u["resets_at"]))[0]
+    check("weekly reset is Sunday 00:00 Cairo", rs == (0, "00:00:00"), str(rs))
+
     # ------------------------------------------------------------ performance (~20k rows)
     t = time.time()
     ok(None, """
@@ -480,7 +512,8 @@ def main():
       from public.profiles where phone like '2010%' and length(phone) = 12 and id <> 'C1ID';
       insert into public.providers (username, name, discount_percent, sort_order)
       select 'prov' || g, 'Provider ' || g, 5 + (g % 40), g % 10 from generate_series(1, 20000) g;
-      update public.providers p set category_id = (select (array_agg(id order by sort_order))[1 + abs(hashtext(p.id::text)) % 6] from public.categories where is_active) where username like 'prov%';
+      update public.providers p set category_id = (select (array_agg(id order by sort_order))[1 + abs(hashtext(p.id::text)) % 6] from public.categories where is_active),
+        area_id = (select (array_agg(id order by sort_order))[1 + abs(hashtext(p.id::text || 'a')) % 1] from public.areas where is_active) where username like 'prov%';
       insert into public.scans (provider_id, member_id, result)
       select (select id from public.providers order by random() limit 1), null, 'invalid' from generate_series(1, 20000);
       insert into public.scans (provider_id, member_id, result, counted, discount_percent)
@@ -508,6 +541,8 @@ def main():
     timed("customer history", c1, "select * from public.my_scan_history(20, 0)")
     timed("admin complaints", A, "select * from public.admin_list_complaints(null, 30, 0)")
     timed("search with min discount", G, "select * from public.search_providers('provider', null, 20, 0, 30)")
+    timed("search in area", G, "select * from public.search_providers('provider', null, 20, 0, null, (select id from public.areas limit 1))")
+    timed("top deals in area", G, "select id,name,discount_percent from public.providers where is_active and area_id=(select id from public.areas limit 1) order by discount_percent desc limit 12")
     timed("customer context", c1, "select public.get_my_context()")
     timed("customer QR", c1, "select public.get_member_qr()")
     timed("provider scan", p1u, "select public.verify_member_qr(%s)", (ok(c1, "select public.get_member_qr()->>'token'")[0][0],))
