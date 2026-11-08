@@ -1,4 +1,4 @@
-import { sb, shell, S, h, $, clear, errMsg, busy, fmtDate, fmtDateTime, toast, getContext, moduleOn, logoSVG, uploadProof, icon } from '../common.js';
+import { sb, shell, S, h, $, clear, errMsg, busy, fmtDate, fmtDateTime, toast, getContext, moduleOn, logoSVG, uploadProof, icon, sessionRevoked, platform } from '../common.js';
 import { qrcode } from '../vendor/qrgen.js';
 
 const app = $('#app');
@@ -35,7 +35,10 @@ async function startQR(box, bar, note) {
   let ttl = 180, left = 0;
   async function refresh() {
     const { data, error } = await sb.rpc('get_member_qr');
-    if (error) { note.textContent = errMsg(error); return; }
+    if (error) {
+      if (/session_revoked/.test(error.message || '')) { sessionRevoked(); return; }
+      note.textContent = errMsg(error); return;
+    }
     drawQR(canvas, `${location.origin}/v.html#${data.token}`);   // phone camera apps open this link
     ttl = Math.min(data.ttl_seconds || 180, 180);
     left = 60; // refresh well before expiry
@@ -74,6 +77,23 @@ async function payFlow(slot, ctx, lastReq) {
       catch { const r = document.createRange(); r.selectNodeContents(val); getSelection().removeAllRanges(); getSelection().addRange(r); }
     });
     const val = h('div', { class: 'pay-value', text: data.account_value });
+    // InstaPay quick pay: the official payment link opens the InstaPay app on the transfer screen
+    let quick = null;
+    if (method === 'instapay' && /^https:\/\/ipn\.eg\/S\/[A-Za-z0-9._-]+\/instapay\/[A-Za-z0-9]+$/.test(data.pay_link || '')) {
+      const fail = h('div', { class: 'quickpay-fail small', hidden: true, text: S('pay_quick_fail') });
+      const a = h('a', { class: 'btn block quickpay', href: data.pay_link, target: '_blank', rel: 'noopener', 'data-platform': platform() }, icon('arrow'), S('pay_quick'));
+      a.addEventListener('click', () => {
+        let left = false;
+        const onHide = () => { if (document.hidden) left = true; };
+        document.addEventListener('visibilitychange', onHide);
+        setTimeout(() => {                       // still here and nothing opened -> manual fallback
+          document.removeEventListener('visibilitychange', onHide);
+          if (!left) fail.hidden = false;
+        }, 2500);
+        setTimeout(() => { fail.hidden = false; }, 8000);   // always show the manual way afterwards
+      });
+      quick = h('div', { class: 'stack' }, a, fail);
+    }
     const file = h('input', { type: 'file', accept: 'image/*', required: true });
     const prev = h('div', { class: 'pay-preview' });
     file.addEventListener('change', () => {
@@ -88,6 +108,7 @@ async function payFlow(slot, ctx, lastReq) {
         h('div', { class: 'small', text: tpl(S('pay_send'), { amount: Number(data.amount) }) }),
         h('div', { class: 'row' }, val, copyBtn),
         h('div', { class: 'small muted-on-dark', text: S(method === 'instapay' ? 'pay_hint_instapay' : 'pay_hint_vodafone') })),
+      quick,
       h('label', { class: 'field' }, h('span', { text: S('pay_upload_label') }), h('div', { class: 'pay-file' }, icon('share'), file), prev),
       h('label', { class: 'field' }, h('span', { text: S('pay_sender_label') }), sender),
       err, send,
@@ -171,20 +192,36 @@ async function main() {
     }
   }
 
-  if (m.status === 'none') {
-    app.append(h('div', { class: 'mcard' }, h('div', { class: 'mlogo' }, logoSVG()), priceBlock(), benefits(), actionSlot));
+  const trial = ctx.trial || 'disabled';
+  if (m.status === 'none' && trial !== 'active') {
+    let trialBox = null;
+    if (trial === 'available') {
+      const go = h('button', { class: 'btn block', type: 'button', text: S('trial_cta') });
+      go.addEventListener('click', async () => {
+        busy(go, true);
+        const { error } = await sb.rpc('start_trial');
+        if (error) { busy(go, false); toast(errMsg(error), 'bad'); return; }
+        await getContext(true); location.reload();
+      });
+      trialBox = h('div', { class: 'card stack trial-card' }, h('span', { class: 'trial-badge', text: S('trial_badge') }),
+        h('h2', { text: S('trial_title') }), h('p', { class: 'muted', text: S('trial_text') }), go);
+    }
+    app.append(trialBox, h('div', { class: 'mcard' }, h('div', { class: 'mlogo' }, logoSVG()), priceBlock(), benefits(),
+      trial === 'used' ? h('p', { class: 'pay-note bad small', text: S('trial_used') }) : null, actionSlot));
     return;
   }
-  const active = m.status === 'active';
+  const isTrial = m.status === 'none' && trial === 'active';
+  const active = m.status === 'active' || isTrial;
   const box = h('div', { class: 'qrbox' }, h('div', { class: 'spinner' }));
   const bar = h('i');
   const note = h('p', { class: 'small center', text: S('qr_hint') });
   app.append(h('div', { class: 'mcard' }, h('div', { class: 'mlogo' }, logoSVG()),
     h('div', { class: 'mstatus' },
       h('div', {}, h('div', { class: 'who', text: `${p.first_name} ${p.last_name}` }), h('div', { class: 'small', text: S('membership_title') })),
-      h('span', { class: `badge ${active ? 'ok' : 'bad'}`, text: active ? S('membership_active_label') : S('membership_expired_label') })),
+      isTrial ? h('span', { class: 'trial-badge', text: S('trial_badge') })
+        : h('span', { class: `badge ${active ? 'ok' : 'bad'}`, text: active ? S('membership_active_label') : S('membership_expired_label') })),
     box, h('div', { class: 'qrbar' }, bar), note,
-    h('p', { class: 'center' }, `${S('membership_valid_until')}: `, h('b', { text: fmtDate(m.expires_at) })),
+    isTrial ? h('p', { class: 'center small', text: S('trial_text') }) : h('p', { class: 'center' }, `${S('membership_valid_until')}: `, h('b', { text: fmtDate(m.expires_at) })),
     canRenew ? [PAY.mode === 'active' ? h('div', { class: 'small pay-step', text: S('pay_title') }) : null, actionSlot] : null));
   startQR(box, bar, note);
 }

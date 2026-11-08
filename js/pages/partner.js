@@ -149,8 +149,9 @@ export async function verify(token) {
     box = h('div', { class: 'result ok' }, icon('check', 'icon'), h('h2', { text: S('scan_active') }),
       h('div', { text: S('scan_discount_label') }), h('div', { class: 'big', text: `${pct(data.discount_percent)}%` }),
       h('div', {}, h('b', { text: data.member_name })),
+      data.trial ? h('div', { class: 'badge brand', text: S('scan_trial') }) : null,
       data.repeat ? h('div', { class: 'badge warn', text: S('scan_repeat') }) : null,
-      h('div', { class: 'small', text: `${S('membership_valid_until')}: ${fmtDate(data.expires_at)}` }),
+      data.expires_at && !data.trial ? h('div', { class: 'small', text: `${S('membership_valid_until')}: ${fmtDate(data.expires_at)}` }) : null,
       data.usage?.limit_count ? h('div', { class: 'small', text: usage }) : null,
       data.notes ? h('div', { class: 'notes small', text: data.notes }) : null);
   } else if (data.status === 'limit_reached' || data.status === 'not_today') {
@@ -159,6 +160,9 @@ export async function verify(token) {
       h('div', {}, h('b', { text: data.member_name })),
       h('div', { class: 'small', text: rulesText(data.usage || {}).join(' · ') }),
       data.status === 'limit_reached' && usage ? h('div', { class: 'small', text: usage }) : null);
+  } else if (data.status === 'trial_used') {
+    box = h('div', { class: 'result bad' }, icon('x', 'icon'), h('h2', { text: S('scan_trial_used') }),
+      h('div', {}, h('b', { text: data.member_name })));
   } else if (data.status === 'expired') {
     box = h('div', { class: 'result bad' }, icon('x', 'icon'), h('h2', { text: S('scan_expired') }),
       h('div', {}, h('b', { text: data.member_name })),
@@ -180,9 +184,9 @@ async function profileView() {
   const file = h('input', { type: 'file', accept: 'image/*', hidden: true });
   const pick = h('button', { class: 'btn sm ghost', type: 'button', text: 'Change image', onclick: () => file.click() });
   const name = h('input', { class: 'input', value: p.name, maxlength: 80, required: true });
-  const disc = h('input', { class: 'input', type: 'number', inputmode: 'decimal', min: 0.01, max: 100, step: 0.01, value: pct(p.discount_percent), required: true });
+
   const notes = h('textarea', { class: 'input', maxlength: 1000, rows: 4 }); notes.value = p.notes || '';
-  const limits = limitsEditor(p);
+  const rules = rulesText(p);
   const save = h('button', { class: 'btn block', type: 'submit', text: 'Save' });
   file.addEventListener('change', async () => {
     const f = file.files[0]; if (!f) return;
@@ -203,17 +207,18 @@ async function profileView() {
   const form = h('form', { class: 'card stack' },
     h('div', { class: 'img-pick' }, preview, pick, file),
     h('label', { class: 'field' }, h('span', { text: 'Business name' }), name),
-    h('label', { class: 'field' }, h('span', { text: 'Discount %' }), disc),
-    h('label', { class: 'field' }, h('span', { text: S('provider_notes_title') }), notes, h('small', { class: 'muted', text: 'Extra info for customers. Day/usage limits go below.' })),
-    h('div', { class: 'card-sub stack' }, h('b', { text: S('partner_limits_title') }), limits.el),
+    h('div', { class: 'card-sub stack locked' },
+      h('div', { class: 'row' }, h('b', { class: 'grow', text: 'Discount' }), h('span', { class: 'offpill sm', text: `${pct(p.discount_percent)}%` })),
+      h('div', {}, h('b', { text: S('partner_limits_title') }),
+        rules.length ? h('ul', { class: 'small' }, rules.map((r) => h('li', { text: r }))) : h('div', { class: 'small muted', text: 'No limits — valid every day.' })),
+      h('div', { class: 'small muted', text: S('partner_discount_locked') })),
+    h('label', { class: 'field' }, h('span', { text: S('provider_notes_title') }), notes, h('small', { class: 'muted', text: 'Extra info for customers.' })),
     save);
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
-    const d = Number(disc.value);
     if (!name.value.trim()) { toast('Enter the business name.', 'bad'); return; }
-    if (!(d > 0 && d <= 100)) { toast('Discount must be between 0.01 and 100.', 'bad'); return; }
     busy(save, true);
-    const { error } = await sb.from('providers').update({ name: name.value.trim(), discount_percent: d, notes: notes.value.trim(), ...limits.value() }).eq('id', p.id);
+    const { error } = await sb.from('providers').update({ name: name.value.trim(), notes: notes.value.trim() }).eq('id', p.id);
     busy(save, false);
     if (error) { toast(errMsg(error), 'bad'); return; }
     toast('Saved');
@@ -232,7 +237,7 @@ async function historyView() {
   const more = h('div', { class: 'more' });
   clear(app).append(h('h1', { text: S('partner_history_title') }), list, more);
   let offset = 0;
-  const LABEL = { active: ['ok', S('membership_active_label')], expired: ['bad', S('membership_expired_label')], invalid: ['warn', S('scan_invalid')], stale: ['warn', S('scan_invalid')], limit_reached: ['bad', S('scan_limit_reached')], not_today: ['bad', S('scan_not_today')] };
+  const LABEL = { active: ['ok', S('membership_active_label')], expired: ['bad', S('membership_expired_label')], invalid: ['warn', S('scan_invalid')], stale: ['warn', S('scan_invalid')], limit_reached: ['bad', S('scan_limit_reached')], not_today: ['bad', S('scan_not_today')], trial_used: ['bad', S('scan_trial_used')] };
   async function load() {
     clear(more).append(h('div', { class: 'spinner' }));
     const { data, error } = await sb.from('scans').select('id,member_label,result,discount_percent,created_at')

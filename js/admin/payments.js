@@ -18,6 +18,7 @@ async function settingsCard() {
   };
   const price = input({ type: 'number', min: 0, step: 1, value: d.membership_price_egp ?? 199 });
   const every = input({ type: 'number', min: 1, max: 1000, step: 1, value: ov?.rotate_every ?? 5 });
+  const trial = checkbox(d.trial_enabled !== false);
   const save = h('button', { class: 'btn', type: 'submit', text: 'Save' });
   const form = h('form', { class: 'card stack' }, h('b', { text: 'Membership sign-up' }),
     h('div', { class: 'radios' },
@@ -26,12 +27,14 @@ async function settingsCard() {
       radio('inactive', 'Closed', 'Nobody can subscribe or send requests right now.')),
     h('div', { class: 'row' }, h('div', { class: 'grow' }, field('Price (EGP / year)', price)),
       h('div', { class: 'grow' }, field('Switch account every N requests', every))),
+    h('label', { class: 'switch' }, h('span', {}, h('b', { text: 'Free trial' }), h('br'), h('small', { class: 'muted', text: 'Each new customer can get 1 free discounted scan.' })), trial),
     save);
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const m = form.querySelector('input[type=radio]:checked')?.value || 'free';
     const data = { ...d, payment_mode: m, membership_price_egp: Math.max(0, Number(price.value) || 0),
-      payment_rotate_every: Math.min(1000, Math.max(1, Math.trunc(Number(every.value) || 1))), membership_free: m === 'free' };
+      payment_rotate_every: Math.min(1000, Math.max(1, Math.trunc(Number(every.value) || 1))), membership_free: m === 'free',
+      trial_enabled: trial.checked };
     busy(save, true);
     const { error } = await sb.from('settings').update({ data, updated_at: new Date().toISOString() }).eq('id', 1);
     busy(save, false);
@@ -46,18 +49,27 @@ function accountSheet(a, method, nextSort) {
   a = a || { method, value: '', label: '', sort_order: nextSort, is_active: true };
   const value = input({ value: a.value, maxlength: 120, placeholder: a.method === 'vodafone' ? '01xxxxxxxxx' : 'name@instapay', inputmode: a.method === 'vodafone' ? 'tel' : 'text' });
   const label = input({ value: a.label, maxlength: 60, placeholder: 'Optional note (e.g. account owner)' });
+  const link = input({ value: a.pay_link || '', maxlength: 200, placeholder: 'https://ipn.eg/S/name/instapay/XXXXXX', inputmode: 'url', autocapitalize: 'none' });
   const sort = input({ type: 'number', step: 1, value: a.sort_order });
   const active = checkbox(a.is_active);
   const err = h('div', { class: 'form-error' });
   const save = h('button', { class: 'btn block', type: 'submit', text: 'Save' });
   const del = isNew ? null : h('button', { class: 'btn block danger', type: 'button', text: 'Delete' });
   const form = h('form', { class: 'stack' },
-    field(a.method === 'vodafone' ? 'Vodafone Cash number' : 'InstaPay address', value), field('Note (only you see it)', label),
+    field(a.method === 'vodafone' ? 'Vodafone Cash number' : 'InstaPay address', value),
+    a.method === 'instapay' ? field('InstaPay payment link (for the “Pay in InstaPay app” button)', link,
+      'In the InstaPay app: open this account → Share / “IPA link” → copy. It looks like https://ipn.eg/S/name/instapay/AbC123') : null,
+    field('Note (only you see it)', label),
     field('Order in rotation (lower first)', sort), h('label', { class: 'switch' }, h('span', { text: 'In rotation' }), active), err, save, del);
   const s = sheet(`${isNew ? 'Add' : 'Edit'} ${LABEL[a.method]}`, form);
   form.addEventListener('submit', async (e) => {
     e.preventDefault(); err.textContent = '';
     const row = { value: value.value.trim(), label: label.value.trim(), sort_order: Math.trunc(Number(sort.value) || 0), is_active: active.checked };
+    if (a.method === 'instapay') {
+      const l = link.value.trim();
+      if (l && !/^https:\/\/ipn\.eg\/S\/[A-Za-z0-9._-]+\/instapay\/[A-Za-z0-9]+$/.test(l)) { err.textContent = errMsg('payment_accounts_pay_link_check'); return; }
+      row.pay_link = l || null;
+    }
     busy(save, true);
     const { error } = isNew ? await sb.from('payment_accounts').insert({ ...row, method: a.method }) : await sb.from('payment_accounts').update(row).eq('id', a.id);
     busy(save, false);
@@ -84,7 +96,7 @@ async function accountsCard(ov) {
     if (!rows.length) list.append(h('div', { class: 'empty', text: `No ${LABEL[m]} accounts yet.` }));
     rows.forEach((r) => list.append(h('button', { class: `item btn-reset${r.id === cur ? ' current-acc' : ''}`, type: 'button', onclick: () => accountSheet(r) },
       h('div', { class: 'grow' }, h('div', { class: 'ellipsis' }, h('b', { text: r.value })),
-        h('div', { class: 'small muted', text: `${r.uses_count} requests${r.label ? ` · ${r.label}` : ''}` })),
+        h('div', { class: 'small muted', text: `${r.uses_count} requests${r.label ? ` · ${r.label}` : ''}${m === 'instapay' ? (r.pay_link ? ' · app link ✓' : ' · no app link') : ''}` })),
       r.id === cur ? h('span', { class: 'badge brand', text: 'Showing now' }) : null,
       h('span', { class: `badge ${r.is_active ? 'ok' : 'bad'}`, text: r.is_active ? 'On' : 'Off' }))));
     card.append(h('div', { class: 'row' }, h('span', { class: `pm-tag ${m}`, text: LABEL[m] }), h('div', { class: 'grow' }),

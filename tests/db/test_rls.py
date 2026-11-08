@@ -53,6 +53,7 @@ conn = None
 
 
 AAL2 = set()          # users whose session passed 2FA
+SESS = {}             # who -> current session id (JWT session_id claim)
 IP_OVERRIDE = {}      # who -> ip
 
 
@@ -77,7 +78,7 @@ def run(who, sql, params=None, fetch=True):
                     cur.execute("set local role anon")
                 elif who is not None:
                     cur.execute("select set_config('request.jwt.claims', %s, true)",
-                                (json.dumps({"sub": str(who), "role": "authenticated", **({"aal": "aal2"} if who in AAL2 else {"aal": "aal1"})}),))
+                                (json.dumps({"sub": str(who), "role": "authenticated", "session_id": SESS.setdefault(who, str(uuid.uuid4())), **({"aal": "aal2"} if who in AAL2 else {"aal": "aal1"})}),))
                     cur.execute("set local role authenticated")
                 cur.execute(sql, params)
                 rows = cur.fetchall() if (fetch and cur.description) else []
@@ -124,6 +125,7 @@ def main():
     ok(None, "insert into auth.users (id, email, aud, role) values (%s, 'owner@gmail.com', 'authenticated', 'authenticated')", (admin,))
     ok(None, "insert into public.admins (user_id) values (%s)", (admin,))
     AAL2.add(admin)
+    IP_OVERRIDE[admin] = "10.0.0.1"
     c1, e = signup("201001112222", "Ahmed", "Mostafa"); assert not e, e
     c2, e = signup("201203334444", "Mona", "Samir"); assert not e, e
     stranger = uuid.uuid4()  # authenticated but no role (e.g. random API sign-up)
@@ -233,7 +235,9 @@ def main():
     ctx = ok(p1u, "select public.get_my_context()")[0][0]
     check("provider context", ctx["role"] == "provider" and ctx["provider"]["id"] == str(p1)
           and ctx["provider"]["username"] == "cafe_one", str(ctx))
-    ok(p1u, "update public.providers set name='Cafe 1', discount_percent=20, notes='Valid Fri\nonly' where id=%s", (p1,))
+    ok(p1u, "update public.providers set name='Cafe 1', notes='Valid Fri\nonly' where id=%s", (p1,))
+    denied("009: provider cannot change own discount", p1u, "update public.providers set discount_percent=20 where id=%s", (p1,))
+    ok(admin, "select public.admin_update_provider(%s, '{\"discount_percent\": 20}')", (p1,))
     r = ok(None, "select name, discount_percent, notes from public.providers where id=%s", (p1,))[0]
     check("provider edits own profile", r == ("Cafe 1", 20, "Valid Fri\nonly"), str(r))
     denied("provider discount 0 rejected", p1u, "update public.providers set discount_percent=0 where id=%s", (p1,))
@@ -271,7 +275,7 @@ def main():
     check("garbage -> invalid", ok(p1u, "select public.verify_member_qr('hello')")[0][0] == {"status": "invalid"})
     check("sql-ish -> invalid", ok(p1u, "select public.verify_member_qr(%s)", ("XG1.'; drop table scans;--",))[0][0] == {"status": "invalid"})
     old_payload = f"XG1.{c1.hex}.{int(time.time()) - 600}"
-    old_sig = ok(None, "select private.sign_qr(%s)", (old_payload,))[0][0]
+    old_sig = ok(None, "select private.sign_qr(%s || '|' || private.active_sid(%s))", (old_payload, c1))[0][0]
     check("old (valid sig) token -> stale",
           ok(p1u, "select public.verify_member_qr(%s)", (old_payload + "." + old_sig,))[0][0] == {"status": "stale"})
     # expired member
@@ -391,15 +395,17 @@ def main():
     p3 = ok(A, "select public.admin_create_provider('limit_cafe', 'Passw0rd!', 'Limit Cafe', 30, 'Dine in')")[0][0]
     p3u = ok(None, "select user_id from public.providers where id=%s", (p3,))[0][0]
     check("guest sees limit columns", ok(G, "select limit_count, limit_period, allowed_days from public.providers where id=%s", (p3,))[0] == (None, None, None))
-    denied("limit count without period rejected", p3u, "update public.providers set limit_count=1 where id=%s", (p3,))
-    denied("limit bad period rejected", p3u, "update public.providers set limit_count=1, limit_period='hour' where id=%s", (p3,))
-    denied("limit count 0 rejected", p3u, "update public.providers set limit_count=0, limit_period='month' where id=%s", (p3,))
-    denied("bad weekday rejected", p3u, "update public.providers set allowed_days='{7}' where id=%s", (p3,))
-    ok(p3u, "update public.providers set allowed_days='{0,1,2,3,4,5,6,6}' where id=%s", (p3,))
+    denied("009: provider cannot set own limits", p3u, "update public.providers set limit_count=1, limit_period='month' where id=%s", (p3,))
+    denied("009: provider cannot set own days", p3u, "update public.providers set allowed_days='{5}' where id=%s", (p3,))
+    denied("limit count without period rejected", None, "update public.providers set limit_count=1 where id=%s", (p3,))
+    denied("limit bad period rejected", None, "update public.providers set limit_count=1, limit_period='hour' where id=%s", (p3,))
+    denied("limit count 0 rejected", None, "update public.providers set limit_count=0, limit_period='month' where id=%s", (p3,))
+    denied("bad weekday rejected", None, "update public.providers set allowed_days='{7}' where id=%s", (p3,))
+    ok(A, "select public.admin_update_provider(%s, '{\"allowed_days\": [0,1,2,3,4,5,6,6]}')", (p3,))
     check("all 7 days normalizes to no restriction", ok(None, "select allowed_days from public.providers where id=%s", (p3,))[0][0] is None)
-    ok(c1, "update public.providers set limit_count=50, limit_period='day' where id=%s", (p3,))
+    denied("customer cannot set limits (no grant)", c1, "update public.providers set limit_count=50, limit_period='day' where id=%s", (p3,))
     check("customer cannot set limits", ok(None, "select limit_count from public.providers where id=%s", (p3,))[0][0] is None)
-    ok(p3u, "update public.providers set limit_count=1, limit_period='month' where id=%s", (p3,))
+    ok(A, "select public.admin_update_provider(%s, '{\"limit_count\": 1, \"limit_period\": \"month\"}')", (p3,))
     today = ok(None, "select extract(dow from now() at time zone 'Africa/Cairo')::int")[0][0]
     def scan3(uid):
         tok = ok(uid, "select public.get_member_qr()->>'token'")[0][0]
@@ -424,7 +430,7 @@ def main():
     ok(None, "update public.scans set created_at = now() - interval '20 minutes' where provider_id=%s", (p3,))
     r = scan3(c4)
     check("wrong weekday -> not_today", r["status"] == "not_today" and r["discount_percent"] is None and r["usage"]["allowed_days"] == [(today + 1) % 7], str(r))
-    ok(p3u, "update public.providers set allowed_days=%s where id=%s", ([today, (today + 3) % 7], p3))
+    ok(A, "select public.admin_update_provider(%s, %s)", (p3, json.dumps({"allowed_days": [today, (today + 3) % 7]})))
     r = scan3(c4)
     check("allowed weekday -> active", r["status"] == "active", str(r))
     ok(A, "select public.admin_update_provider(%s, '{\"allowed_days\": null}')", (p3,))
@@ -548,7 +554,7 @@ def main():
     IP_OVERRIDE[A] = "203.0.113.9"
     check("admin from banned IP is not admin", ok(A, "select public.is_admin()")[0][0] is False)
     check("admin from banned IP gets no data", ok(A, "select public.admin_stats()")[0][0] is None)
-    del IP_OVERRIDE[A]
+    IP_OVERRIDE[A] = "10.0.0.1"
     sec = ok(A, "select public.admin_security_overview()")[0][0]
     bans = {b["ip"] for b in sec["bans"]}
     check("admin sees bans + events", {"203.0.113.7", "203.0.113.8", "203.0.113.9"} <= bans and len(sec["events"]) > 10 and sec["my_ip"] == "10.0.0.1", str(bans))
@@ -653,6 +659,88 @@ def main():
     ok(A, "update public.settings set data = data || '{\"payment_mode\": \"free\"}'")
     denied("free mode: no paid requests", c9, "select public.start_membership_payment('instapay')", contains="payments_unavailable")
     ok(c9, "select public.subscribe_membership()")
+
+    # ------------------------------------------------------------ 009: single session per customer
+    t1 = ok(c1, "select public.get_member_qr()->>'token'")[0][0]
+    old_sid = SESS[c1]
+    ok(None, "insert into auth.sessions (id, user_id) values (%s, %s)", (old_sid, c1))
+    new_sid = str(uuid.uuid4())
+    ok(None, "insert into auth.sessions (id, user_id) values (%s, %s)", (new_sid, c1))
+    ok(None, "insert into auth.sessions (id, user_id) values (gen_random_uuid(), %s)", (c1,))
+    SESS[c1] = new_sid
+    r = ok(c1, "select public.claim_session()")[0][0]
+    check("login claims session, revokes the others", r == {"claimed": True, "revoked": 2} and
+          ok(None, "select array_agg(id::text) from auth.sessions where user_id=%s", (c1,))[0][0] == [new_sid], str(r))
+    res = ok(p1u, "select public.verify_member_qr(%s)", (t1,))[0][0]
+    check("QR from the replaced login is invalid", res == {"status": "invalid"}, str(res))
+    t2 = ok(c1, "select public.get_member_qr()->>'token'")[0][0]
+    check("QR from the active login works", ok(p1u, "select public.verify_member_qr(%s)", (t2,))[0][0]["status"] in ("active", "limit_reached", "not_today"))
+    SESS[c1] = old_sid  # the other phone keeps using its old access token
+    check("old device: context says revoked", ok(c1, "select public.get_my_context()->>'role'")[0][0] == "revoked")
+    denied("old device: no QR", c1, "select public.get_member_qr()", contains="session_revoked")
+    denied("old device: no complaint", c1, "select public.file_complaint(%s, %s, '')", (p3, "Other"), contains="session_revoked")
+    denied("old device: no trial", c1, "select public.start_trial()", contains="session_revoked")
+    ok(c1, "update public.profiles set first_name='Hacker' where id=%s", (c1,))
+    check("old device: profile edit blocked", ok(None, "select first_name from public.profiles where id=%s", (c1,))[0][0] != "Hacker")
+    SESS[c1] = new_sid
+    check("active device fine", ok(c1, "select public.get_my_context()->>'role'")[0][0] == "customer")
+    check("partner login doesn't kick other partner devices", ok(p1u, "select public.claim_session()")[0][0] == {"claimed": False})
+    check("customer without claim row is not blocked", ok(c2, "select public.session_ok()")[0][0] is True)
+
+    # ------------------------------------------------------------ 009: free trial (1 scan)
+    ct, _ = signup("201550012345", "Tri", "Al")
+    check("trial available", ok(ct, "select public.get_my_context()->>'trial'")[0][0] == "available")
+    denied("no QR before trial", ct, "select public.get_member_qr()", contains="no_membership")
+    ok(ct, "select public.start_trial()")
+    check("trial active", ok(ct, "select public.get_my_context()->>'trial'")[0][0] == "active")
+    denied("trial only once", ct, "select public.start_trial()", contains="trial_used")
+    tt = ok(ct, "select public.get_member_qr()")[0][0]
+    check("trial QR", tt["status"] == "none" and tt["trial"] == "active")
+    res = ok(p1u, "select public.verify_member_qr(%s)", (tt["token"],))[0][0]
+    check("trial scan gives the discount", res["status"] == "active" and res["trial"] is True and float(res["discount_percent"]) == 20, str(res))
+    check("trial now used", ok(ct, "select public.get_my_context()->>'trial'")[0][0] == "used")
+    res = ok(p1u, "select public.verify_member_qr(%s)", (ok(ct, "select public.get_member_qr()->>'token'")[0][0],))[0][0]
+    check("same checkout re-scan still ok", res["status"] == "active" and res["repeat"], str(res))
+    res = ok(p3u, "select public.verify_member_qr(%s)", (ok(ct, "select public.get_member_qr()->>'token'")[0][0],))[0][0]
+    check("trial used at another partner", res["status"] == "trial_used" and res["discount_percent"] is None, str(res))
+    ok(None, "update public.trials set used_at = now() - interval '20 minutes' where user_id=%s", (ct,))
+    ok(None, "update public.scans set created_at = now() - interval '20 minutes' where member_id=%s", (ct,))
+    res = ok(p1u, "select public.verify_member_qr(%s)", (ok(ct, "select public.get_member_qr()->>'token'")[0][0],))[0][0]
+    check("trial used later -> refused", res["status"] == "trial_used", str(res))
+    check("one counted trial scan", ok(None, "select count(*) from public.scans where member_id=%s and counted and trial", (ct,))[0][0] == 1)
+    denied("trials table private", ct, "select * from public.trials")
+    denied("member can't start trial", c7, "select public.start_trial()", contains="already_active")
+    ok(A, "update public.settings set data = data || '{\"trial_enabled\": false}'")
+    cu, _ = signup("201550012346", "No", "Trial")
+    check("trial disabled", ok(cu, "select public.get_my_context()->>'trial'")[0][0] == "disabled")
+    denied("trial disabled start", cu, "select public.start_trial()", contains="trial_unavailable")
+    ok(A, "update public.settings set data = data - 'trial_enabled'")
+    # parallel trial scans at two partners: only one gets the discount
+    cp, _ = signup("201550012347", "Par", "Trial")
+    ok(cp, "select public.start_trial()")
+    tokp = ok(cp, "select public.get_member_qr()->>'token'")[0][0]
+    outs = []
+    def par2(prov_uid):
+        with psycopg.connect(DSN, autocommit=True) as cc, cc.transaction():
+            cc.execute("select set_config('request.jwt.claims', %s, true)", (json.dumps({"sub": str(prov_uid), "role": "authenticated"}),))
+            cc.execute("set local role authenticated")
+            outs.append(cc.execute("select public.verify_member_qr(%s)", (tokp,)).fetchone()[0]["status"])
+    import threading
+    ths = [threading.Thread(target=par2, args=(u,)) for u in (p1u, p3u, p1u, p3u)]
+    [t.start() for t in ths]; [t.join() for t in ths]
+    check("parallel trial scans at 2 partners: one discount", ok(None, "select count(*) from public.scans where member_id=%s and counted", (cp,))[0][0] == 1, str(outs))
+
+    # ------------------------------------------------------------ 009: InstaPay links
+    ok(A, "update public.payment_accounts set pay_link='https://ipn.eg/S/xgoone/instapay/6PANJ2' where value='xgo.one@instapay'")
+    denied("bad pay link rejected", A, "update public.payment_accounts set pay_link='javascript:alert(1)' where value='xgo.one@instapay'")
+    denied("non-ipn link rejected", A, "update public.payment_accounts set pay_link='https://evil.com/S/x/instapay/abc' where value='xgo.one@instapay'")
+    ok(A, "update public.settings set data = data || '{\"payment_mode\": \"active\"}'")
+    cl, _ = signup("201550012348", "Link", "Pay")
+    r9 = ok(cl, "select public.start_membership_payment('instapay')")[0][0]
+    check("payment start returns pay link", r9["pay_link"] == "https://ipn.eg/S/xgoone/instapay/6PANJ2" or r9["account_value"] != "xgo.one@instapay", str(r9))
+    ok(cl, "select public.cancel_membership_request()")
+    ok(A, "update public.settings set data = data || '{\"payment_mode\": \"free\"}'")
+    check("schema 009", ok(G, "select public.schema_status()->>'m009'")[0][0] == "true")
 
     # ------------------------------------------------------------ performance (~20k rows)
     t = time.time()
