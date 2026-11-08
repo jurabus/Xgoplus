@@ -1,4 +1,4 @@
-import { sb, shell, S, h, $, clear, canonicalPhone, phoneEmail, errMsg, busy, param, brandLogo } from '../common.js';
+import { sb, shell, S, h, $, clear, canonicalPhone, phoneEmail, errMsg, busy, param, brandLogo, claimSession } from '../common.js';
 
 const app = $('#app');
 async function main() {
@@ -37,6 +37,7 @@ async function main() {
       err.textContent = error ? errMsg(error) : S('signup_exists');
       return;
     }
+    await claimSession();
     const next = param('next');
     location.replace(next && /^[a-z0-9_-]+\.html/i.test(next) ? next : 'membership.html');
   });

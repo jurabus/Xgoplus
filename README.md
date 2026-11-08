@@ -62,13 +62,16 @@ Web app only (no native iOS/Android app).
 8. `migrations/008_payments_security.sql` — paid memberships (InstaPay / Vodafone Cash, rotating accounts, private
    screenshot bucket `proofs`, admin approval), payment mode free/active/inactive, admin 2FA requirement (aal2),
    per-IP suspicious-activity log + bans, `schema_status()` for the admin dashboard
+9. `migrations/009_trial_session_paylink.sql` — partners can't edit discount/limits (admin only), free trial (1 scan per
+   account), one active session per customer (`claim_session()` revokes others; QR tokens bound to the active session),
+   InstaPay payment links (`ipn.eg`) for the "Pay in InstaPay app" button
 
 `supabase/setup_all.sql` = all of the above in one file (regenerate with `tools/gen-setup-all.sh`).
 
 ## Tests
 
 ```sh
-python3 -I tests/db/test_rls.py     # 302 database checks incl. 20k-row performance
+python3 -I tests/db/test_rls.py     # 337 database checks incl. 20k-row performance
 tests/e2e/run.sh                    # full UI run, screenshots of every screen
 ```
 

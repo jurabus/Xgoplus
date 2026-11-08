@@ -1,4 +1,4 @@
-import { sb, shell, S, h, $, clear, canonicalPhone, phoneEmail, errMsg, busy, param, getContext, brandLogo } from '../common.js';
+import { sb, shell, S, h, $, clear, canonicalPhone, phoneEmail, errMsg, busy, param, getContext, brandLogo, claimSession } from '../common.js';
 
 const app = $('#app');
 function safeNext() {
@@ -12,7 +12,7 @@ async function main() {
   clear(app);
   const phone = h('input', { class: 'input grow', type: 'tel', inputmode: 'tel', autocomplete: 'username', placeholder: '01xxxxxxxxx', required: true, maxlength: 16 });
   const pass = h('input', { class: 'input', type: 'password', autocomplete: 'current-password', required: true, maxlength: 72 });
-  const err = h('div', { class: 'form-error', role: 'alert' });
+  const err = h('div', { class: 'form-error', role: 'alert', text: param('revoked') ? S('session_revoked') : '' });
   const btn = h('button', { class: 'btn block', type: 'submit', text: S('login_button') });
   const form = h('form', { class: 'card stack', novalidate: true },
     h('label', { class: 'field' }, h('span', { text: S('phone_label') }), h('div', { class: 'phone-row' }, h('div', { class: 'cc', text: '+20' }), phone)),
@@ -27,6 +27,7 @@ async function main() {
     busy(btn, true);
     const { error } = await sb.auth.signInWithPassword({ email: phoneEmail(digits), password: pass.value });
     if (error) { busy(btn, false); err.textContent = errMsg(error); return; }
+    await claimSession();   // signs this account out everywhere else
     const c = await getContext(true);
     location.replace(c.role === 'admin' && !param('next') ? 'admin.html' : safeNext());
   });

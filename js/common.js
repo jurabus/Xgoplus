@@ -183,6 +183,17 @@ export function getContext(force = false) {
   }
   return ctxPromise;
 }
+// This customer account was opened on another device: sign out here.
+export async function sessionRevoked() {
+  await sb.auth.signOut({ scope: 'local' }).catch(() => {});
+  ctxPromise = null;
+  location.replace('login.html?revoked=1');
+}
+// Call right after a customer logs in / signs up: makes this the only active session.
+export async function claimSession() {
+  const { error } = await sb.rpc('claim_session');
+  if (error) console.warn('claim_session:', error.message);
+}
 export async function logout(to = 'index.html') {
   await sb.auth.signOut().catch(() => {});
   ctxPromise = null;
@@ -291,6 +302,10 @@ const ERRORS = {
   not_found: 'Not found.',
   invalid_days: 'Enter a number of days between 1 and 3660.',
   invalid_reason: 'Please choose one of the listed reasons.',
+  session_revoked: 'Your account was opened on another device.',
+  trial_used: 'Your free trial has already been used.',
+  trial_unavailable: 'The free trial is not available right now.',
+  payment_accounts_pay_link_check: 'The InstaPay link must look like https://ipn.eg/S/name/instapay/CODE',
   payments_unavailable: 'Membership requests are not available right now.',
   method_unavailable: 'This payment method is not available right now.',
   request_pending: 'You already have a request under review.',
@@ -407,6 +422,7 @@ export async function shell(active, { requireRole, searchBar } = {}) {
   await loadSettings();
   document.documentElement.dir = S('text_direction') === 'rtl' ? 'rtl' : 'ltr';
   const ctx = await getContext();
+  if (ctx.role === 'revoked') { await sessionRevoked(); throw new Error('redirect'); }
   if (requireRole && !requireRole.includes(ctx.role)) {
     location.replace(ctx.role === 'provider' ? 'partner.html' : `login.html?next=${encodeURIComponent(location.pathname.split('/').pop() + location.search + location.hash)}`);
     throw new Error('redirect');

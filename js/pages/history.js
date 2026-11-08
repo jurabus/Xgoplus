@@ -8,6 +8,7 @@ const RESULT = {
   expired: ['bad', () => S('membership_expired_label')],
   limit_reached: ['warn', () => S('scan_limit_reached')],
   not_today: ['warn', () => S('scan_not_today')],
+  trial_used: ['bad', () => S('scan_trial_used')],
 };
 
 async function main() {
