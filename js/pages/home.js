@@ -8,7 +8,7 @@ import { mountSearch } from '../search.js';
 const app = $('#app');
 
 function hero() {
-  const heroImg = S('hero_image_path') ? mediaUrl(S('hero_image_path')) : '/img/hero.webp';
+  const heroImg = S('hero_image_path') ? mediaUrl(S('hero_image_path')) : '/img/hero.webp?v=2';
   const searchSlot = h('div', { class: 'hero-search' });
   const el = h('section', { class: 'hero-wrap' },
     h('div', { class: 'hero' },
