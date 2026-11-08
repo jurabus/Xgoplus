@@ -536,3 +536,5 @@ input[type=file] { max-width: 100%; font-size: 14px; }
   .mainnav { margin-left: 8px; }
   .mainnav a, .mainnav button { padding: 8px 9px; }
 }
+/* discount text on cards in brand yellow */
+.dcard .off { color: var(--accent); }
