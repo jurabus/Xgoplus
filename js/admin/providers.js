@@ -61,6 +61,79 @@ function createSheet() {
   });
 }
 
+// ---------- branches (admin only; RLS refuses writes from anyone else) ----------
+function branchesSection(p) {
+  const listEl = h('div', { class: 'stack' });
+  const addBtn = h('button', { class: 'btn sm', type: 'button', text: '+ Add branch' });
+  const box = h('div', { class: 'card stack' },
+    h('div', { class: 'row' }, h('b', { class: 'grow', text: 'Branches' }), addBtn),
+    h('p', { class: 'small muted', text: 'Each branch puts this partner under its area in the area filter and shows on the partner page Branches tab.' }),
+    listEl);
+  async function load() {
+    const { data, error } = await sb.from('branches').select('id,area_id,name,address,phone,maps_url,sort_order,is_active,area:areas(name)')
+      .eq('provider_id', p.id).order('sort_order').order('name').limit(200);
+    clear(listEl);
+    if (error) { listEl.append(h('p', { class: 'form-error', text: `Branches unavailable — run update 011. (${errMsg(error)})` })); addBtn.disabled = true; return; }
+    if (!data.length) listEl.append(h('p', { class: 'small muted', text: 'No branches yet.' }));
+    for (const b of data) {
+      listEl.append(h('button', { class: 'item btn-reset branch-item', type: 'button', onclick: () => branchSheet(p, b, load) },
+        h('div', { class: 'grow' },
+          h('div', { class: 'ellipsis' }, h('b', { text: [b.area?.name, b.name].filter(Boolean).join(' · ') || '(no area)' })),
+          h('div', { class: 'small muted ellipsis', text: [b.address, b.phone].filter(Boolean).join(' · ') })),
+        h('span', { class: `badge ${b.is_active ? 'ok' : 'bad'}`, text: b.is_active ? 'Shown' : 'Hidden' })));
+    }
+  }
+  addBtn.addEventListener('click', () => branchSheet(p, null, load));
+  load();
+  return box;
+}
+
+function branchSheet(p, b, reload) {
+  const area = areaSelect(b?.area_id || '');
+  const name = input({ maxlength: 80, value: b?.name || '', placeholder: 'Optional, e.g. Mall branch' });
+  const address = textarea(b?.address || '', { maxlength: 300, rows: 2, placeholder: 'Street, building, landmark' });
+  const phone = input({ type: 'tel', maxlength: 20, value: b?.phone || '', placeholder: '+20…', inputmode: 'tel' });
+  const maps = input({ type: 'url', maxlength: 500, value: b?.maps_url || '', placeholder: 'https://maps.app.goo.gl/…' });
+  const sort = input({ type: 'number', step: 1, value: b?.sort_order ?? 0 });
+  const active = checkbox(b ? b.is_active : true);
+  const err = h('div', { class: 'form-error' });
+  const save = h('button', { class: 'btn block', type: 'submit', text: b ? 'Save branch' : 'Add branch' });
+  const del = b ? h('button', { class: 'btn block danger', type: 'button', text: 'Delete branch' }) : null;
+  const form = h('form', { class: 'stack' },
+    field('Area', area), field('Branch name', name), field('Detailed address', address),
+    field('Phone', phone), field('Google Maps link', maps, 'Optional. Share → Copy link in Google Maps. Without it the pin searches the address.'),
+    field('Sort order', sort), h('label', { class: 'switch' }, h('span', { text: 'Shown to customers' }), active), err, save, del);
+  const s = sheet(b ? 'Edit branch' : `New branch · ${p.name}`, form);
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault(); err.textContent = '';
+    const row = {
+      area_id: area.value || null, name: name.value.trim(), address: address.value.trim(),
+      phone: phone.value.replace(/[^\d+]/g, '') || null, maps_url: maps.value.trim() || null,
+      sort_order: Math.trunc(Number(sort.value) || 0), is_active: active.checked,
+    };
+    if (!row.area_id && !row.address) { err.textContent = 'Pick an area or enter an address.'; return; }
+    busy(save, true);
+    const { error } = b ? await sb.from('branches').update(row).eq('id', b.id)
+      : await sb.from('branches').insert({ ...row, provider_id: p.id });
+    busy(save, false);
+    if (error) { err.textContent = branchErr(error); return; }
+    s.close(); toast(b ? 'Branch saved' : 'Branch added'); reload();
+  });
+  del?.addEventListener('click', async () => {
+    if (!(await confirmDialog('Delete this branch?', 'Delete', true))) return;
+    const { error } = await sb.from('branches').delete().eq('id', b.id);
+    if (error) { toast(branchErr(error), 'bad'); return; }
+    s.close(); toast('Branch deleted'); reload();
+  });
+}
+function branchErr(e) {
+  const m = e?.message || '';
+  if (/branches_phone|phone/.test(m) && /check/.test(m)) return 'Phone must be 5–15 digits (optionally starting with +).';
+  if (/maps_url/.test(m)) return 'Use a Google Maps link (google.com/maps or maps.app.goo.gl).';
+  if (/branch_needs_area_or_address/.test(m)) return 'Pick an area or enter an address.';
+  return errMsg(e);
+}
+
 async function editSheet(p0) {
   const { data: lim } = await sb.from('providers').select('limit_count,limit_period,allowed_days,area_id').eq('id', p0.id).maybeSingle();
   const p = { ...p0, ...(lim || {}) };
@@ -94,7 +167,7 @@ async function editSheet(p0) {
   const pw = input({ type: 'text', maxlength: 72, placeholder: 'New password (min 8)', autocomplete: 'off' });
   const pwBtn = h('button', { class: 'btn ghost', type: 'button', text: 'Set password' });
   const del = h('button', { class: 'btn block danger', type: 'button', text: 'Delete provider' });
-  const s = sheet(p.name, h('p', { class: 'small muted' }, 'Username: ', h('b', { text: p.username })), form,
+  const s = sheet(p.name, h('p', { class: 'small muted' }, 'Username: ', h('b', { text: p.username })), form, branchesSection(p),
     h('h2', { text: 'Reset password' }), h('div', { class: 'row' }, h('div', { class: 'grow' }, pw), pwBtn),
     h('div', { class: 'stack' }, h('div'), del));
   form.addEventListener('submit', async (e) => {

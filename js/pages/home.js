@@ -68,7 +68,7 @@ async function feed() {
   const r = await selectProviders((cols, withAreas) => {
     let q = sb.from('providers').select(cols).eq('is_active', true)
       .order('discount_percent', { ascending: false }).order('sort_order').order('name').limit(10);
-    if (area && withAreas) q = q.eq('area_id', area);
+    if (area && withAreas) q = q.contains('area_ids', [area]);
     return q;
   });
   return { top: r.data || [], rows: [] };

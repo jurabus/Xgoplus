@@ -175,6 +175,12 @@ export default {
   "install_button": "Install app",
   "install_later": "Not now",
   "install_done": "Got it",
-  "app_disabled_modules": []
+  "app_disabled_modules": [],
+  "tab_offer": "Offer details",
+  "tab_branches": "Branches",
+  "branches_empty": "Branch details will be added soon.",
+  "branch_call": "Call",
+  "branch_map": "Open in Google Maps",
+  "more_areas": "+% more areas"
 }
 ;
