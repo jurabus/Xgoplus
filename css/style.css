@@ -472,7 +472,7 @@ input[type=file] { max-width: 100%; font-size: 14px; }
 .pay-note.bad { background: rgba(255, 106, 61, .2); border: 1px solid rgba(255, 106, 61, .55); }
 .muted-on-dark { opacity: .8; margin-top: 6px; }
 .linklike { border: 0; background: none; color: inherit; text-decoration: underline; cursor: pointer; opacity: .85; width: 100%; padding: 6px; font-size: 14px; }
-.proof-img { width: 100%; max-height: 70vh; object-fit: contain; border-radius: 14px; background: #fff; }
+.proof-img { width: 100%; max-height: 70vh; object-fit: contain; border-radius: 14px; background: var(--card); }
 .pm-tag { display: inline-block; padding: 2px 8px; border-radius: 8px; font-size: 12px; font-weight: 700; }
 .pm-tag.instapay { background: #efe8ff; color: #4b2a8a; }
 .pm-tag.vodafone { background: #ffe5e5; color: #c00000; }
@@ -540,3 +540,22 @@ input[type=file] { max-width: 100%; font-size: 14px; }
 .dcard .off { color: var(--accent); }
 /* discount text in brand yellow on the partner page, partner portal and search suggestions too */
 .offpill, .sug-off { color: var(--accent); }
+
+/* ---------- partner page tabs + branches ---------- */
+.p-tabs { display: flex; gap: 6px; border-bottom: 1px solid var(--line); margin-top: 6px; }
+.p-tab { appearance: none; background: none; border: 0; padding: 10px 14px; font: inherit; font-weight: 700; color: var(--muted); cursor: pointer; border-bottom: 3px solid transparent; margin-bottom: -1px; }
+.p-tab[aria-selected="true"] { color: var(--brand); border-bottom-color: var(--brand); }
+.p-tab .tab-n { font-weight: 600; }
+.br-group { display: grid; gap: 8px; }
+.br-area { display: flex; align-items: center; gap: 6px; font-weight: 800; font-size: 16px; margin-top: 4px; }
+.br-area svg { width: 18px; height: 18px; color: var(--brand); }
+.br-area small { margin-left: auto; color: var(--muted); font-weight: 600; background: var(--brand-soft); border-radius: 999px; padding: 1px 9px; }
+.br-list { display: grid; gap: 8px; }
+.br-row { display: flex; align-items: center; gap: 10px; padding: 12px 12px 12px 14px; border: 1px solid var(--line); border-radius: 14px; background: var(--card); }
+.br-text { min-width: 0; }
+.br-text b { display: block; }
+.br-addr { color: var(--muted); font-size: 13px; line-height: 1.35; margin-top: 2px; }
+.br-btn { flex: none; width: 42px; height: 42px; border-radius: 12px; display: grid; place-items: center; text-decoration: none; }
+.br-btn svg { width: 20px; height: 20px; }
+.br-btn.call { background: var(--brand-soft); color: var(--brand); }
+.br-btn.map { background: #ff8a1f; color: #fff; box-shadow: 0 6px 14px rgba(255, 138, 31, .3); }

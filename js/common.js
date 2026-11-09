@@ -617,7 +617,8 @@ export function loadCategories() {
   return catsPromise;
 }
 export function providerCard(p) {
-  const area = p.area?.name || p.area_name || '';
+  const extra = Number(p.areas_count) > 1 ? ` +${Number(p.areas_count) - 1}` : '';
+  const area = (p.area?.name || p.area_name || '') + ((p.area?.name || p.area_name) ? extra : '');
   return h('a', { class: 'dcard', href: `provider.html?id=${encodeURIComponent(p.id)}` },
     p.image_path
       ? h('img', { src: mediaUrl(p.image_path), alt: '', loading: 'lazy', decoding: 'async', width: 400, height: 430 })

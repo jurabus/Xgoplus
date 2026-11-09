@@ -289,6 +289,32 @@ def main():
         a.click(".sheet button[type=submit]")
         a.wait_for_selector(".toast")
         assert sql("select a.name from public.providers p join public.areas a on a.id=p.area_id where p.username='cafe_one'") == "Sheikh Zayed"
+        # branches: admin adds two branches (New Cairo + Sheikh Zayed) to Cafe Aroma
+        a.click(".list >> text=Cafe Aroma")
+        a.wait_for_selector(".sheet .branch-item, .sheet >> text=No branches yet.")
+        for area_name, bname, addr, ph in [("New Cairo", "Point 90 Mall", "Point 90 Mall, ground floor, South Teseen St", "+201001234567"),
+                                           ("Sheikh Zayed", "", "Arkan Plaza, Building 3, 26th of July Corridor", "0238001122")]:
+            a.click(".sheet >> text=+ Add branch")
+            bs = a.locator(".sheet").last
+            expect(bs.locator("h2")).to_contain_text("New branch")
+            bs.locator("select").select_option(label=area_name)
+            bs.locator("input").nth(0).fill(bname)
+            bs.locator("textarea").fill(addr)
+            bs.locator("input[type=tel]").fill(ph)
+            if area_name == "Sheikh Zayed":
+                bs.locator("input[type=url]").fill("https://evil.example.com/x")
+                bs.locator("button[type=submit]").click()
+                expect(bs.locator(".form-error")).to_contain_text("Google Maps")
+                bs.locator("input[type=url]").fill("https://maps.app.goo.gl/abc123")
+            else:
+                shot(a, "09e-admin-branch-new", full=False)
+            bs.locator("button[type=submit]").click()
+            expect(a.locator(".sheet")).to_have_count(1)
+        expect(a.locator(".sheet .branch-item")).to_have_count(2)
+        shot(a, "09f-admin-branches", full=False)
+        a.click(".sheet >> text=Close")
+        assert sql("select count(*) from public.branches b join public.providers p on p.id=b.provider_id where p.username='cafe_one'") == "2"
+        assert sql("select phone from public.branches where address like 'Point 90%'") == "+201001234567"
         # category icon picker
         a.click(".admin-tabs >> text=Categories")
         a.locator(".list .item").nth(0).locator(".btn-reset").click()
@@ -362,6 +388,26 @@ def main():
         expect(g.locator(".notes")).to_contain_text("Fridays")
         shot(g, "12-guest-provider")
         expect(g.locator(".p-area")).to_contain_text("Sheikh Zayed")
+        g.click(".p-tab:has-text('Branches')")
+        expect(g.locator(".p-tab[aria-selected=true]")).to_contain_text("(2)")
+        expect(g.locator(".br-row")).to_have_count(2)
+        expect(g.locator(".notes")).to_be_hidden()
+        expect(g.locator(".br-area").first).to_contain_text("Sheikh Zayed")
+        expect(g.locator(".br-row").first).to_contain_text("Arkan Plaza")
+        assert g.locator(".br-row").first.locator("a.map").get_attribute("href") == "https://maps.app.goo.gl/abc123"
+        expect(g.locator(".br-row").nth(1)).to_contain_text("Point 90 Mall")
+        assert g.locator(".br-row").nth(1).locator("a.call").get_attribute("href") == "tel:+201001234567"
+        assert "google.com/maps/search" in g.locator(".br-row").nth(1).locator("a.map").get_attribute("href")
+        shot(g, "12a-guest-provider-branches")
+        g.click(".p-tab:has-text('Offer details')")
+        expect(g.locator(".notes")).to_be_visible()
+        # branch area makes the partner show up when filtering by New Cairo
+        g.goto(SITE + "/offers.html")
+        g.click(".site-head .area-pill"); g.click(".area-opt:has-text('New Cairo')")
+        g.wait_for_selector(".dcard"); g.wait_for_timeout(500)
+        assert g.locator(".dcard .name").all_text_contents() == ["Cafe Aroma"]
+        expect(g.locator(".dcard").first).to_contain_text("New Cairo")
+        shot(g, "12d-offers-branch-area", full=False)
         # customer area picker -> top deals only from that area
         g.goto(SITE + "/")
         g.click(".site-head .area-pill")

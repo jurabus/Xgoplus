@@ -762,6 +762,43 @@ def main():
     check("limits capped", len(ok(G, "select public.home_feed(null, 500, 50, 500)")[0][0]["top"]) <= 20)
     check("schema 010", ok(G, "select public.schema_status()->>'m010'")[0][0] == "true")
 
+    # ------------------------------------------------------------ 011: branches / multi-area partners
+    octo3 = ok(None, "select id from public.areas where name='6th of October'")[0][0]
+    zay2 = ok(A, "insert into public.areas (name, sort_order) values ('Zayed 2', 40) returning id")[0][0]
+    mad = ok(A, "insert into public.areas (name, sort_order) values ('Maadi', 50) returning id")[0][0]
+    ok(A, "select public.admin_update_provider(%s, %s)", (p1, json.dumps({"area_id": str(octo3)})))
+    b1 = ok(A, "insert into public.branches (provider_id, area_id, name, address, phone, maps_url) values (%s, %s, 'Mall branch', '12 Mall St <b>', '+20 100 123 4567', 'https://maps.app.goo.gl/abc123') returning id, address, phone", (p1, zay2))[0]
+    check("branch sanitized", b1[1] == "12 Mall St  b" or b1[1].startswith("12 Mall St") and "<" not in b1[1], str(b1))
+    check("branch phone normalized", b1[2] == "+201001234567", str(b1))
+    denied("bad maps link rejected", A, "insert into public.branches (provider_id, area_id, maps_url) values (%s, %s, 'javascript:alert(1)')", (p1, zay2))
+    denied("non-google maps link rejected", A, "insert into public.branches (provider_id, area_id, maps_url) values (%s, %s, 'https://evil.com/maps/x')", (p1, zay2))
+    ok(A, "insert into public.branches (provider_id, area_id, address) values (%s, %s, 'Road 9')", (p1, mad))
+    ids = set(ok(G, "select area_ids from public.providers where id=%s", (p1,))[0][0])
+    check("partner in main + branch areas", ids == {octo3, zay2, mad}, str(ids))
+    for who in (G, c1, p1u):
+        denied("non-admin cannot add branch", who, "insert into public.branches (provider_id, area_id, address) values (%s, %s, 'x')", (p1, mad))
+    denied("partner cannot change area_ids", p1u, "update public.providers set area_ids='{}' where id=%s", (p1,))
+    ok(p1u, "update public.branches set address='hacked'")
+    check("partner cannot edit branches", ok(None, "select count(*) from public.branches where address='hacked'")[0][0] == 0)
+    check("partner sees own branches", len(ok(p1u, "select id from public.branches where provider_id=%s", (p1,))) == 2)
+    check("guest sees active branches", len(ok(G, "select id, address, phone, maps_url from public.branches where provider_id=%s", (p1,))) == 2)
+    r = [x[0] for x in ok(G, "select name from public.search_providers('cafe', null, 20, 0, null, %s)", (mad,))]
+    check("search finds partner by branch area", "Cafe 1" in r, str(r))
+    fm = ok(G, "select public.home_feed(%s, 10, 5, 10)", (mad,))[0][0]
+    tm = [t for t in fm["top"] if t["name"] == "Cafe 1"]
+    check("home feed by branch area shows that area's name", tm and tm[0]["area_name"] == "Maadi" and tm[0]["areas_count"] == 3, str(tm))
+    check("offers filter by area_ids", ok(G, "select count(*) from public.providers where is_active and area_ids @> array[%s]::uuid[]", (mad,))[0][0] >= 1)
+    ok(A, "update public.branches set is_active=false where area_id=%s", (mad,))
+    check("inactive branch area dropped", mad not in ok(G, "select area_ids from public.providers where id=%s", (p1,))[0][0])
+    check("hidden branch not public", len(ok(G, "select id from public.branches where provider_id=%s", (p1,))) == 1)
+    ok(A, "delete from public.areas where id=%s", (zay2,))
+    check("deleted area removed from partner", zay2 not in ok(G, "select area_ids from public.providers where id=%s", (p1,))[0][0])
+    ok(A, "select public.admin_update_provider(%s, '{\"area_id\": \"\"}')", (p1,))
+    check("main area cleared", octo3 not in ok(G, "select area_ids from public.providers where id=%s", (p1,))[0][0])
+    check("area counts use branches", any(r[0] for r in ok(A, "select * from public.admin_area_counts()")))
+    denied("branch needs area or address", A, "insert into public.branches (provider_id) values (%s)", (p1,), contains="branch_needs_area_or_address")
+    check("schema 011", ok(G, "select public.schema_status()->>'m011'")[0][0] == "true")
+
     # ------------------------------------------------------------ performance (~20k rows)
     t = time.time()
     ok(None, """
@@ -810,6 +847,8 @@ def main():
     timed("is_admin check", A, "select public.is_admin()")
     timed("home feed (20k providers)", G, "select public.home_feed(null, 10, 5, 10)", limit_ms=250)
     timed("home feed in area", G, "select public.home_feed((select id from public.areas limit 1), 10, 5, 10)", limit_ms=250)
+    timed("search in area (branches)", G, "select * from public.search_providers('provider', null, 20, 0, null, (select id from public.areas limit 1))")
+    timed("offers in area (area_ids)", G, "select id,name from public.providers where is_active and area_ids @> array[(select id from public.areas limit 1)] order by sort_order, name, id limit 24 offset 240")
     timed("customer context", c1, "select public.get_my_context()")
     timed("customer QR", c1, "select public.get_member_qr()")
     timed("provider scan", p1u, "select public.verify_member_qr(%s)", (ok(c1, "select public.get_member_qr()->>'token'")[0][0],))

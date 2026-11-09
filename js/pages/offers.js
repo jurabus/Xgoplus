@@ -29,9 +29,10 @@ async function main() {
         .eq('is_active', true).order('sort_order').order('name').order('id').range(offset, offset + PAGE - 1);
       if (cat) q = q.eq('category_id', cat);
       if (minDisc) q = q.gte('discount_percent', minDisc);
-      if (area && withAreas) q = q.eq('area_id', area);
+      if (area && withAreas) q = q.contains('area_ids', [area]);   // main area or any branch
       return q;
     });
+    if (!error && area && data) { const a = await currentArea(); if (a) data.forEach((p) => { p.area = { name: a.name }; }); }
     if (error) throw error;
     return data;
   }, PAGE, () => (cat || minDisc || area ? S('category_empty') : S('home_empty')));
