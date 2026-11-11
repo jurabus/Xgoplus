@@ -495,7 +495,9 @@ export async function shell(active, { requireRole, searchBar } = {}) {
   const top = h('header', { class: 'site-head' }, row);
   const tab = h('nav', { class: 'tabbar', 'aria-label': 'Main' },
     items.map((i) => h('a', { href: i.href, class: i.key === active ? 'active' : '', 'aria-current': i.key === active ? 'page' : null }, icon(i.icon), h('span', { text: i.label }))));
-  const foot = h('footer', { class: 'footer' }, S('footer_text'), ' · ', h('a', { href: 'about.html', text: S('nav_about') }),
+  const foot = h('footer', { class: 'footer' },
+    h('div', { class: 'foot-share' }, h('button', { class: 'share-link', type: 'button', onclick: () => shareSheet() }, icon('share'), h('span', { text: S('share_link') }))),
+    S('footer_text'), ' · ', h('a', { href: 'about.html', text: S('nav_about') }),
     S('contact_phone') ? [' · ', h('a', { href: `tel:${S('contact_phone').replace(/[^\d+]/g, '')}`, text: S('contact_phone') })] : null);
   document.body.prepend(top);
   document.body.append(foot, tab);
@@ -539,6 +541,56 @@ export async function pickArea() {
   const opt = (id, name) => h('button', { class: `area-opt${(cur || '') === id ? ' on' : ''}`, type: 'button', onclick: () => { setArea(id); location.reload(); } },
     icon(id ? 'pin' : 'grid'), h('span', { class: 'grow', text: name }), (cur || '') === id ? icon('check') : null);
   sheet(S('area_pick_title'), h('div', { class: 'area-list' }, opt('', S('area_all')), areas.map((a) => opt(a.id, a.name))));
+}
+
+// ---------- share the website ----------
+const SHARE_ICONS = {
+  whatsapp: ICONS.wa,
+  facebook: 'M14 8h3V4h-3a4 4 0 0 0-4 4v2H7v4h3v8h4v-8h3l1-4h-4V8.5a.5.5 0 0 1 .5-.5z',
+  instagram: 'M7 3h10a4 4 0 0 1 4 4v10a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V7a4 4 0 0 1 4-4zm5 5a4 4 0 1 0 0 8 4 4 0 0 0 0-8zm5.5-1.5h.01',
+  messenger: 'M12 3C7 3 3 6.7 3 11.3c0 2.6 1.3 4.9 3.3 6.4V21l3-1.7c.9.3 1.8.4 2.7.4 5 0 9-3.7 9-8.4S17 3 12 3zm-4 10.5 3-3.2 2 2 3-3.3-3 3.3-2-2z',
+  telegram: 'M21 4 3 11l6 2 2 6 3-4 5 4zM9 13l9-6',
+  x: 'M4 4l16 16M20 4 4 20',
+  sms: 'M4 5h16v11H8l-4 4zM8 10h8',
+  email: ICONS.mail,
+  copy: 'M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1',
+  more: ICONS.share,
+};
+async function copyText(t) {
+  try { await navigator.clipboard.writeText(t); return true; } catch { /* fall back */ }
+  const ta = h('textarea', { class: 'offscreen', 'aria-hidden': 'true' }); ta.value = t; document.body.append(ta); ta.select();
+  let ok = false; try { ok = document.execCommand('copy'); } catch { /* */ } ta.remove(); return ok;
+}
+export function shareSheet() {
+  const url = `${location.origin}/`;
+  const text = S('share_text');
+  const msg = `${text}\n${url}`;
+  const e = encodeURIComponent;
+  const mobile = platform() !== 'other';
+  const canNative = typeof navigator.share === 'function';
+  const native = async (app) => {
+    if (canNative) { try { await navigator.share({ title: S('share_title'), text, url }); return; } catch (err) { if (err?.name === 'AbortError') return; } }
+    await copyText(msg);
+    toast(app ? S('share_paste_hint').replace('%', app) : S('share_copied'));
+  };
+  const opts = [
+    { k: 'whatsapp', label: 'WhatsApp', href: `https://wa.me/?text=${e(msg)}` },
+    { k: 'facebook', label: 'Facebook', href: `https://www.facebook.com/sharer/sharer.php?u=${e(url)}` },
+    { k: 'instagram', label: 'Instagram', run: () => native('Instagram') },
+    mobile ? { k: 'messenger', label: 'Messenger', href: `fb-messenger://share/?link=${e(url)}` } : null,
+    { k: 'telegram', label: 'Telegram', href: `https://t.me/share/url?url=${e(url)}&text=${e(text)}` },
+    { k: 'x', label: 'X', href: `https://x.com/intent/post?text=${e(text)}&url=${e(url)}` },
+    mobile ? { k: 'sms', label: 'SMS', href: `sms:?&body=${e(msg)}` } : null,
+    { k: 'email', label: 'Email', href: `mailto:?subject=${e(S('share_title'))}&body=${e(msg)}` },
+    { k: 'copy', label: S('share_copy'), run: async () => { toast((await copyText(url)) ? S('share_copied') : url); } },
+    canNative ? { k: 'more', label: S('share_more'), run: () => native() } : null,
+  ].filter(Boolean);
+  const s = sheet(S('share_title'), h('div', { class: 'share-grid' }, opts.map((o) => {
+    const ic = h('span', { class: `share-ic si-${o.k}` }, svgPath(SHARE_ICONS[o.k]));
+    const attrs = { class: 'share-opt', 'data-app': o.k };
+    if (o.href) return h('a', { ...attrs, href: o.href, target: o.href.startsWith('http') ? '_blank' : null, rel: 'noopener', onclick: () => setTimeout(() => s.close(), 300) }, ic, h('span', { text: o.label }));
+    return h('button', { ...attrs, type: 'button', onclick: () => { o.run(); s.close(); } }, ic, h('span', { text: o.label }));
+  })), h('div', { class: 'share-url ellipsis', text: url }));
 }
 
 // ---------- bottom sheet ----------

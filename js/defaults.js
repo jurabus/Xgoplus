@@ -181,6 +181,13 @@ export default {
   "branches_empty": "Branch details will be added soon.",
   "branch_call": "Call",
   "branch_map": "Open in Google Maps",
-  "more_areas": "+% more areas"
+  "more_areas": "+% more areas",
+  "share_link": "Share",
+  "share_title": "Share XGo+",
+  "share_text": "Save at restaurants, cafés, doctors, salons and more with one XGo+ membership 👇",
+  "share_copied": "Link copied",
+  "share_paste_hint": "Link copied — paste it in %",
+  "share_more": "More apps",
+  "share_copy": "Copy link"
 }
 ;

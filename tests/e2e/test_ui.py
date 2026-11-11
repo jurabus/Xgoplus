@@ -323,7 +323,9 @@ def main():
         a.click(".sheet >> text=Close")
 
         # ---------------- guest ----------------
-        g = phone_ctx(browser, "guest").new_page()
+        gctx = phone_ctx(browser, "guest")
+        gctx.add_init_script("navigator.share = async (d) => { window.__shared = d; };")
+        g = gctx.new_page()
         g.goto(SITE + "/")
         g.wait_for_selector(".deals .dcard")
         expect(g.locator(".hero-title")).to_contain_text("More Savings.")
@@ -338,6 +340,18 @@ def main():
         assert g.locator("main >> text=null").count() == 0
         shot(g, "10-guest-home", full=False)
         shot(g, "10b-guest-home-full")
+        # share sheet from the footer
+        expect(g.locator(".footer .share-link")).to_be_visible()
+        g.click(".footer .share-link")
+        expect(g.locator(".sheet .share-opt")).to_have_count(8)   # desktop UA: no Messenger/SMS; More apps shown (native share mocked)
+        wa = g.locator(".share-opt[data-app=whatsapp]").get_attribute("href")
+        assert wa.startswith("https://wa.me/?text=") and ("localhost" in wa or "127.0.0.1" in wa), wa
+        assert "facebook.com/sharer" in g.locator(".share-opt[data-app=facebook]").get_attribute("href")
+        shot(g, "10c-share-sheet", full=False)
+        g.click(".share-opt[data-app=instagram]")
+        g.wait_for_timeout(300)
+        assert g.evaluate("window.__shared && window.__shared.url").endswith("/"), "native share not called"
+        expect(g.locator(".sheet .share-opt")).to_have_count(0)
         g.click(".catbar .cat >> nth=0")
         g.wait_for_url("**/offers.html?cat=*")
         expect(g.locator(".chip.active")).to_contain_text("Cafés")
