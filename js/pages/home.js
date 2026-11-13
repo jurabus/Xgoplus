@@ -65,9 +65,9 @@ async function feed() {
   const { data, error } = await sb.rpc('home_feed', { p_area: area || null, p_top: 10, p_rows: 5, p_per_row: 10 });
   if (!error && data) return data;
   // database update 010 not installed yet: simple top deals
-  const r = await selectProviders((cols, withAreas) => {
+  const r = await selectProviders((cols, withAreas, feat) => {
     let q = sb.from('providers').select(cols).eq('is_active', true)
-      .order('discount_percent', { ascending: false }).order('sort_order').order('name').limit(10);
+      .order(feat.max ? 'max_percent' : 'discount_percent', { ascending: false }).order('sort_order').order('name').limit(10);
     if (area && withAreas) q = q.contains('area_ids', [area]);
     return q;
   });

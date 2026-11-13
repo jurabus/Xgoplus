@@ -1,4 +1,4 @@
-import { sb, h, clear, errMsg, busy, toast, confirmDialog, mediaUrl, uploadImage, pct, initialOf, limitsEditor } from '../common.js';
+import { sb, h, clear, errMsg, busy, toast, confirmDialog, mediaUrl, uploadImage, pct, initialOf, limitsEditor, dayNames, offerWhen } from '../common.js';
 import { sheet, field, input, textarea, checkbox, pagedList } from './ui.js';
 
 let list, q = '', cats = [], areas = [];
@@ -35,7 +35,7 @@ function createSheet() {
   const form = h('form', { class: 'stack' },
     field('Username (login)', username, '3–30 lowercase letters, numbers, _'),
     field('Password', password, 'Share it with the provider. They log in at /partner.html'),
-    field('Business name', name), field('Category', cat), field('Area', area), field('Discount %', disc), field('Special notes', notes, 'Extra info. Day/usage limits are set separately (edit the provider after creating).'),
+    field('Business name', name), field('Category', cat), field('Area', area), field('Standard discount % (0 = only the offers below)', disc), field('Special notes', notes, 'Extra info. Day/usage limits are set separately (edit the provider after creating).'),
     field('Image / logo', file), err, btn);
   const s = sheet('New provider', form);
   form.addEventListener('submit', async (e) => {
@@ -134,6 +134,93 @@ function branchErr(e) {
   return errMsg(e);
 }
 
+// ---------- discount offers (admin only; RLS refuses writes from anyone else) ----------
+const OFFER_KINDS = { time: 'Time window', first: 'First visit', service: 'Service' };
+function offersSection(p) {
+  const listEl = h('div', { class: 'stack' });
+  const addBtn = h('button', { class: 'btn sm', type: 'button', text: '+ Add offer' });
+  const box = h('div', { class: 'card stack' },
+    h('div', { class: 'row' }, h('b', { class: 'grow', text: 'Discount offers' }), addBtn),
+    h('p', { class: 'small muted', text: 'Extra discounts on top of the standard one: a time window (e.g. 12:00–15:00 50%), a first-visit discount, or a % per service. The scan picks the best time/first-visit discount automatically and lists the services.' }),
+    listEl);
+  async function load() {
+    const { data, error } = await sb.from('discount_rules').select('id,kind,title,percent,start_time,end_time,days,sort_order,is_active')
+      .eq('provider_id', p.id).order('kind').order('sort_order').order('percent', { ascending: false }).limit(100);
+    clear(listEl);
+    if (error) { listEl.append(h('p', { class: 'form-error', text: `Offers unavailable — run update 012. (${errMsg(error)})` })); addBtn.disabled = true; return; }
+    if (!data.length) listEl.append(h('p', { class: 'small muted', text: 'No offers — only the standard discount applies.' }));
+    for (const r of data) {
+      const sub = r.kind === 'time' ? offerWhen(r) : r.kind === 'first' ? 'On the member\'s first visit' : 'Shown at checkout';
+      listEl.append(h('button', { class: 'item btn-reset offer-item', type: 'button', onclick: () => offerSheet(p, r, load) },
+        h('span', { class: 'offer-pct', text: `${pct(r.percent)}%` }),
+        h('div', { class: 'grow' },
+          h('div', { class: 'ellipsis' }, h('b', { text: `${OFFER_KINDS[r.kind]}${r.title ? ` · ${r.title}` : ''}` })),
+          h('div', { class: 'small muted ellipsis', text: sub })),
+        h('span', { class: `badge ${r.is_active ? 'ok' : 'bad'}`, text: r.is_active ? 'On' : 'Off' })));
+    }
+  }
+  addBtn.addEventListener('click', () => offerSheet(p, null, load));
+  load();
+  return box;
+}
+
+function offerSheet(p, r, reload) {
+  const kind = h('select', { class: 'input' }, Object.entries(OFFER_KINDS).map(([v, t]) => h('option', { value: v, text: t })));
+  kind.value = r?.kind || 'time';
+  const title = input({ maxlength: 80, value: r?.title || '' });
+  const percent = input({ type: 'number', min: 0.01, max: 100, step: 0.01, value: r ? pct(r.percent) : '' });
+  const from = input({ type: 'time', value: (r?.start_time || '12:00').slice(0, 5) });
+  const to = input({ type: 'time', value: (r?.end_time || '15:00').slice(0, 5) });
+  const names = dayNames(true);
+  const dayBoxes = names.map((n, i) => { const c = checkbox(!r?.days || r.days.includes(i)); c.dataset.day = i; return h('label', { class: 'day-pick' }, c, h('span', { text: n })); });
+  const sort = input({ type: 'number', step: 1, value: r?.sort_order ?? 0 });
+  const active = checkbox(r ? r.is_active : true);
+  const timeBox = h('div', { class: 'stack' },
+    h('div', { class: 'row' }, h('div', { class: 'grow' }, field('From', from)), h('div', { class: 'grow' }, field('To', to))),
+    h('small', { class: 'muted', text: 'Egypt time. If "To" is earlier than "From" the window runs past midnight.' }),
+    h('div', { class: 'field' }, h('span', { text: 'Days' }), h('div', { class: 'day-picks' }, dayBoxes)));
+  const titleField = field('Name', title);
+  const err = h('div', { class: 'form-error' });
+  const save = h('button', { class: 'btn block', type: 'submit', text: r ? 'Save offer' : 'Add offer' });
+  const del = r ? h('button', { class: 'btn block danger', type: 'button', text: 'Delete offer' }) : null;
+  const sync = () => {
+    timeBox.hidden = kind.value !== 'time';
+    titleField.querySelector('span').textContent = kind.value === 'service' ? 'Service name (required)' : 'Label (optional, e.g. Lunch hours)';
+    title.placeholder = kind.value === 'service' ? 'e.g. Initial assessment' : '';
+  };
+  kind.addEventListener('change', sync); sync();
+  const form = h('form', { class: 'stack' }, field('Type', kind), titleField, field('Discount %', percent), timeBox,
+    field('Sort order', sort), h('label', { class: 'switch' }, h('span', { text: 'Active' }), active), err, save, del);
+  const s = sheet(r ? 'Edit offer' : `New offer · ${p.name}`, form);
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault(); err.textContent = '';
+    const k = kind.value;
+    const days = dayBoxes.map((l) => l.querySelector('input')).filter((c) => c.checked).map((c) => Number(c.dataset.day));
+    const v = Number(percent.value);
+    if (k === 'service' && !title.value.trim()) { err.textContent = 'Enter the service name.'; return; }
+    if (!(v > 0 && v <= 100)) { err.textContent = 'Enter a discount between 0.01 and 100.'; return; }
+    if (k === 'time' && (!from.value || !to.value || from.value === to.value)) { err.textContent = 'Pick two different times.'; return; }
+    if (k === 'time' && !days.length) { err.textContent = 'Pick at least one day.'; return; }
+    const row = {
+      kind: k, title: title.value.trim(), percent: v, sort_order: Math.trunc(Number(sort.value) || 0), is_active: active.checked,
+      start_time: k === 'time' ? from.value : null, end_time: k === 'time' ? to.value : null,
+      days: k === 'time' && days.length < 7 ? days : null,
+    };
+    busy(save, true);
+    const { error } = r ? await sb.from('discount_rules').update(row).eq('id', r.id)
+      : await sb.from('discount_rules').insert({ ...row, provider_id: p.id });
+    busy(save, false);
+    if (error) { err.textContent = /discount_rules_one_first|duplicate/.test(error.message || '') ? 'This partner already has a first-visit offer.' : errMsg(error); return; }
+    s.close(); toast(r ? 'Offer saved' : 'Offer added'); reload(); list.load();
+  });
+  del?.addEventListener('click', async () => {
+    if (!(await confirmDialog('Delete this offer?', 'Delete', true))) return;
+    const { error } = await sb.from('discount_rules').delete().eq('id', r.id);
+    if (error) { toast(errMsg(error), 'bad'); return; }
+    s.close(); toast('Offer deleted'); reload(); list.load();
+  });
+}
+
 async function editSheet(p0) {
   const { data: lim } = await sb.from('providers').select('limit_count,limit_period,allowed_days,area_id').eq('id', p0.id).maybeSingle();
   const p = { ...p0, ...(lim || {}) };
@@ -142,7 +229,7 @@ async function editSheet(p0) {
   const prev = thumb(p); prev.classList.add('preview');
   const file = h('input', { type: 'file', accept: 'image/*' });
   const name = input({ maxlength: 80, value: p.name });
-  const disc = input({ type: 'number', min: 0.01, max: 100, step: 0.01, value: pct(p.discount_percent) });
+  const disc = input({ type: 'number', min: 0, max: 100, step: 0.01, value: pct(p.discount_percent) });
   const notes = textarea(p.notes || '', { maxlength: 1000, rows: 3 });
   const sort = input({ type: 'number', step: 1, value: p.sort_order });
   const cat = catSelect(p.category_id);
@@ -167,7 +254,7 @@ async function editSheet(p0) {
   const pw = input({ type: 'text', maxlength: 72, placeholder: 'New password (min 8)', autocomplete: 'off' });
   const pwBtn = h('button', { class: 'btn ghost', type: 'button', text: 'Set password' });
   const del = h('button', { class: 'btn block danger', type: 'button', text: 'Delete provider' });
-  const s = sheet(p.name, h('p', { class: 'small muted' }, 'Username: ', h('b', { text: p.username })), form, branchesSection(p),
+  const s = sheet(p.name, h('p', { class: 'small muted' }, 'Username: ', h('b', { text: p.username })), form, offersSection(p), branchesSection(p),
     h('h2', { text: 'Reset password' }), h('div', { class: 'row' }, h('div', { class: 'grow' }, pw), pwBtn),
     h('div', { class: 'stack' }, h('div'), del));
   form.addEventListener('submit', async (e) => {

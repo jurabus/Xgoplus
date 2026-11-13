@@ -24,11 +24,11 @@ async function main() {
   currentArea().then((a) => { if (a) sub.textContent = `${S('tagline')} · ${a.name}`; });
 
   const list = infiniteGrid(grid, more, async (offset) => {
-    const { data, error } = await selectProviders((cols, withAreas) => {
+    const { data, error } = await selectProviders((cols, withAreas, feat) => {
       let q = sb.from('providers').select(cols)
         .eq('is_active', true).order('sort_order').order('name').order('id').range(offset, offset + PAGE - 1);
       if (cat) q = q.eq('category_id', cat);
-      if (minDisc) q = q.gte('discount_percent', minDisc);
+      if (minDisc) q = q.gte(feat.max ? 'max_percent' : 'discount_percent', minDisc);   // best offer counts
       if (area && withAreas) q = q.contains('area_ids', [area]);   // main area or any branch
       return q;
     });
