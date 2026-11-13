@@ -6,6 +6,7 @@ turned into a fake camera feed, and decoded by the partner page's scanner.
 
 usage: tests/e2e/start.sh && python3 -I tests/e2e/test_ui.py
 """
+import re
 import io
 import os
 import subprocess
@@ -105,6 +106,10 @@ def phone_ctx(browser, name, install_popup=False, android=False, **kw):
         ctx.add_init_script("try { localStorage.setItem('xg-install-dismissed', String(Date.now() + 864e5)); } catch (e) {}")
     wire(ctx, name)
     return ctx
+
+
+def pct_of(t):
+    return float(re.search(r"([0-9.]+)%", t).group(1))
 
 
 def main():
@@ -315,6 +320,33 @@ def main():
         a.click(".sheet >> text=Close")
         assert sql("select count(*) from public.branches b join public.providers p on p.id=b.provider_id where p.username='cafe_one'") == "2"
         assert sql("select phone from public.branches where address like 'Point 90%'") == "+201001234567"
+        # discount offers: two services + a time window later today (so scans now use the standard 15%)
+        a.click(".list >> text=Cafe Aroma")
+        a.wait_for_selector(".sheet .offer-item, .sheet >> text=No offers")
+        later = sql("select to_char((now() at time zone 'Africa/Cairo') + interval '3 hours', 'HH24:MI') || ',' || to_char((now() at time zone 'Africa/Cairo') + interval '5 hours', 'HH24:MI')").split(",")
+        for kind, title, pctv in [("service", "Espresso", "30"), ("service", "Breakfast", "25"), ("time", "Lunch hours", "50")]:
+            a.click(".sheet >> text=+ Add offer")
+            os_ = a.locator(".sheet").last
+            expect(os_.locator("h2")).to_contain_text("New offer")
+            os_.locator("select").select_option(kind)
+            if kind == "service":
+                expect(os_.locator(".day-picks")).to_be_hidden()
+                os_.locator("button[type=submit]").click()
+                expect(os_.locator(".form-error")).to_contain_text("service name")
+            os_.locator("input").nth(0).fill(title)
+            os_.locator("input[type=number]").first.fill(pctv)
+            if kind == "time":
+                os_.locator("input[type=time]").nth(0).fill(later[0])
+                os_.locator("input[type=time]").nth(1).fill(later[1])
+                os_.locator(".day-pick input").nth(6).uncheck()   # not on Saturdays
+                shot(a, "09g-admin-offer-time", full=False)
+            os_.locator("button[type=submit]").click()
+            expect(a.locator(".sheet")).to_have_count(1)
+        expect(a.locator(".sheet .offer-item")).to_have_count(3)
+        shot(a, "09h-admin-offers", full=False)
+        a.click(".sheet >> text=Close")
+        assert sql("select max_percent from public.providers where username='cafe_one'") == "50.00"
+        assert sql("select days::text from public.discount_rules where title='Lunch hours'") == "{0,1,2,3,4,5}"
         # category icon picker
         a.click(".admin-tabs >> text=Categories")
         a.locator(".list .item").nth(0).locator(".btn-reset").click()
@@ -330,8 +362,8 @@ def main():
         g.wait_for_selector(".deals .dcard")
         expect(g.locator(".hero-title")).to_contain_text("More Savings.")
         expect(g.locator(".catbar .cat")).to_have_count(7)
-        offs = [float(t.split("%")[0]) for t in g.locator(".deals").first.locator(".dcard .off").all_text_contents()]
-        assert len(offs) == 10 and max(offs) == float(sql("select max(discount_percent) from public.providers where is_active")), offs
+        offs = [pct_of(t) for t in g.locator(".deals").first.locator(".dcard .off").all_text_contents()]
+        assert len(offs) == 10 and max(offs) == float(sql("select max(greatest(discount_percent, max_percent)) from public.providers where is_active")), offs
         rows = g.locator(".cat-row").count()
         assert 1 <= rows <= 5, rows
         for i in range(rows):
@@ -402,6 +434,12 @@ def main():
         expect(g.locator(".notes")).to_contain_text("Fridays")
         shot(g, "12-guest-provider")
         expect(g.locator(".p-area")).to_contain_text("Sheikh Zayed")
+        expect(g.locator(".offpill")).to_contain_text("Up to")
+        expect(g.locator(".offer-row")).to_have_count(4)   # time offer + standard + 2 services
+        expect(g.locator(".offers")).to_contain_text("Lunch hours")
+        expect(g.locator(".offers")).to_contain_text("All other times")
+        expect(g.locator(".offer-list.svc")).to_contain_text("Espresso")
+        shot(g, "12b-guest-provider-offers")
         g.click(".p-tab:has-text('Branches')")
         expect(g.locator(".p-tab[aria-selected=true]")).to_contain_text("(2)")
         expect(g.locator(".br-row")).to_have_count(2)
@@ -545,6 +583,8 @@ def main():
         b2, p = scan_with(qr_png, "qr-active")
         expect(p.locator(".result")).to_contain_text("Membership active")
         expect(p.locator(".result .big")).to_have_text("15%")
+        expect(p.locator(".result .scan-svc")).to_contain_text("Espresso")
+        expect(p.locator(".result .scan-svc li")).to_have_count(2)
         expect(p.locator(".site-head .area-pill")).to_contain_text("Sheikh Zayed")
         expect(p.locator(".result")).to_contain_text("Ahmed M.")
         shot(p, "30-provider-scan-active")
@@ -558,6 +598,7 @@ def main():
         p.wait_for_selector("h1:has-text(\"My business\")")
         # discount + limits are admin-only now: partner sees them read-only
         expect(p.locator(".locked")).to_contain_text("15%")
+        expect(p.locator(".locked")).to_contain_text("Lunch hours")
         expect(p.locator(".locked")).to_contain_text("set by XGo+")
         assert p.locator("main input[type=number]").count() == 0
         r = p.evaluate("""async () => { const m = await import('/js/common.js');
@@ -612,7 +653,7 @@ def main():
         g.wait_for_selector(".dcard")
         g.select_option(".discount-sel", "20")
         g.wait_for_timeout(900)
-        offs = [float(t.split("%")[0]) for t in g.locator(".dcard .off").all_text_contents()]
+        offs = [pct_of(t) for t in g.locator(".dcard .off").all_text_contents()]
         assert offs and min(offs) >= 20, offs
         shot(g, "14-guest-discount-filter", full=False)
         # report a partner

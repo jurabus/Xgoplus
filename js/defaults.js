@@ -188,6 +188,19 @@ export default {
   "share_copied": "Link copied",
   "share_paste_hint": "Link copied — paste it in %",
   "share_more": "More apps",
-  "share_copy": "Copy link"
+  "share_copy": "Copy link",
+  "up_to": "Up to",
+  "offers_heading": "Discounts",
+  "offer_standard": "Standard discount",
+  "offer_standard_sub": "Every visit",
+  "offer_standard_rest": "All other times and visits",
+  "offer_first": "First visit",
+  "offer_first_sub": "On your first visit here",
+  "offer_time": "Happy hours",
+  "offer_services": "Discount by service",
+  "scan_offer_first": "First visit offer",
+  "scan_offer_time": "Time offer",
+  "scan_services": "Service discounts",
+  "scan_no_standard": "Discount by service — see the list"
 }
 ;

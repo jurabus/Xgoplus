@@ -1,7 +1,7 @@
 // Search box (Amazon-style): live top-5 suggestions with image, name, area and % off;
 // "View all" -> search.html?q=… . Typo tolerance is done by the database.
 // Results respect the customer's chosen area.
-import { sb, S, h, clear, icon, mediaUrl, pct, initialOf, getArea, areaPill } from './common.js';
+import { sb, S, h, clear, icon, mediaUrl, pct, initialOf, getArea, areaPill, bestPct } from './common.js';
 
 export const SUGGEST_LIMIT = 5;
 
@@ -43,7 +43,7 @@ export function mountSearch(container, initial = '', { hero = false } = {}) {
     items = data.map((p, i) => h('a', { class: 'sug', role: 'option', id: `sug-${i}`, href: `provider.html?id=${encodeURIComponent(p.id)}` },
       p.image_path ? h('img', { src: mediaUrl(p.image_path), alt: '', loading: 'lazy', width: 48, height: 48 }) : h('span', { class: 'thumb', text: initialOf(p.name) }),
       h('span', { class: 'sug-name' }, h('span', {}, highlight(p.name, q)), p.area_name ? h('span', { class: 'sug-area', text: p.area_name }) : null),
-      h('span', { class: 'sug-off', text: `${pct(p.discount_percent)}%` })));
+      h('span', { class: 'sug-off' }, bestPct(p) > Number(p.discount_percent) ? h('small', { class: 'upto', text: S('up_to') }) : null, `${pct(bestPct(p))}%`)));
     if (!items.length) pop.append(h('div', { class: 'search-empty', text: `${S('search_no_results')} “${q}”` }));
     pop.append(...items);
     if (items.length) pop.append(h('button', { class: 'btn block ghost sug-all', type: 'button', text: S('search_view_all'), onclick: () => goAll(q) }));

@@ -1,6 +1,6 @@
 import {
   sb, shell, S, h, $, clear, icon, errMsg, busy, toast, providerEmail, getContext, mediaUrl,
-  uploadImage, pct, fmtDate, fmtDateTime, initialOf, logout, moduleOn, limitsEditor, passwordForm, rulesText, usageText, platform, brandLogo,
+  uploadImage, pct, fmtDate, fmtDateTime, initialOf, logout, moduleOn, limitsEditor, passwordForm, rulesText, usageText, platform, brandLogo, loadOffers, offersList, fmtTime,
 } from '../common.js';
 
 const app = $('#app');
@@ -147,7 +147,13 @@ export async function verify(token) {
   const usage = data.usage ? usageText(data.usage) : '';
   if (data.status === 'active') {
     box = h('div', { class: 'result ok' }, icon('check', 'icon'), h('h2', { text: S('scan_active') }),
-      h('div', { text: S('scan_discount_label') }), h('div', { class: 'big', text: `${pct(data.discount_percent)}%` }),
+      Number(data.discount_percent) > 0 || !data.services?.length
+        ? [h('div', { text: S('scan_discount_label') }), h('div', { class: 'big', text: `${pct(data.discount_percent)}%` })]
+        : h('div', { class: 'big-sub', text: S('scan_no_standard') }),
+      data.discount_kind === 'first' ? h('div', { class: 'badge hot', text: S('scan_offer_first') }) : null,
+      data.discount_kind === 'time' ? h('div', { class: 'badge hot', text: `${data.time_title || S('scan_offer_time')} · ${fmtTime(data.time_from)} – ${fmtTime(data.time_to)}` }) : null,
+      data.services?.length ? h('div', { class: 'scan-svc' }, h('b', { text: S('scan_services') }),
+        h('ul', {}, data.services.map((x) => h('li', {}, h('span', { text: x.title }), h('b', { text: `${pct(x.percent)}%` }))))) : null,
       h('div', {}, h('b', { text: data.member_name })),
       data.trial ? h('div', { class: 'badge brand', text: S('scan_trial') }) : null,
       data.repeat ? h('div', { class: 'badge warn', text: S('scan_repeat') }) : null,
@@ -177,7 +183,9 @@ export async function verify(token) {
 async function profileView() {
   stopCamera();
   clear(app).append(h('div', { class: 'spinner' }));
-  const { data: lim } = await sb.from('providers').select('limit_count,limit_period,allowed_days').eq('id', ctx.provider.id).maybeSingle();
+  const [{ data: lim }, offers] = await Promise.all([
+    sb.from('providers').select('limit_count,limit_period,allowed_days').eq('id', ctx.provider.id).maybeSingle(),
+    loadOffers(ctx.provider.id)]);
   const p = { ...ctx.provider, ...(lim || {}) };
   let imagePath = p.image_path;
   const preview = imagePath ? h('img', { class: 'preview', src: mediaUrl(imagePath), alt: '' }) : h('div', { class: 'preview thumb', text: initialOf(p.name) });
@@ -208,7 +216,8 @@ async function profileView() {
     h('div', { class: 'img-pick' }, preview, pick, file),
     h('label', { class: 'field' }, h('span', { text: 'Business name' }), name),
     h('div', { class: 'card-sub stack locked' },
-      h('div', { class: 'row' }, h('b', { class: 'grow', text: 'Discount' }), h('span', { class: 'offpill sm', text: `${pct(p.discount_percent)}%` })),
+      offers.length ? h('div', {}, h('b', { text: S('offers_heading') }), offersList(p, offers))
+        : h('div', { class: 'row' }, h('b', { class: 'grow', text: 'Discount' }), h('span', { class: 'offpill sm', text: `${pct(p.discount_percent)}%` })),
       h('div', {}, h('b', { text: S('partner_limits_title') }),
         rules.length ? h('ul', { class: 'small' }, rules.map((r) => h('li', { text: r }))) : h('div', { class: 'small muted', text: 'No limits — valid every day.' })),
       h('div', { class: 'small muted', text: S('partner_discount_locked') })),

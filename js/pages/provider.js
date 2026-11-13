@@ -1,4 +1,4 @@
-import { sb, shell, S, h, $, clear, mediaUrl, pct, initialOf, param, rulesText, usageText, icon, catIcon } from '../common.js';
+import { sb, shell, S, h, $, clear, mediaUrl, pct, initialOf, param, rulesText, usageText, icon, catIcon, offBadge, loadOffers, offersList } from '../common.js';
 
 const app = $('#app');
 async function main() {
@@ -7,8 +7,9 @@ async function main() {
   const id = param('id') || '';
   const { data: p } = /^[0-9a-f-]{36}$/i.test(id)
     ? await (async () => {
-      const full = await sb.from('providers').select('id,name,image_path,discount_percent,notes,limit_count,limit_period,allowed_days,area:areas(name),category:categories(name,icon)')
-        .eq('id', id).eq('is_active', true).maybeSingle();
+      const cols = 'id,name,image_path,discount_percent,notes,limit_count,limit_period,allowed_days,area:areas(name),category:categories(name,icon)';
+      let full = await sb.from('providers').select(`${cols},max_percent`).eq('id', id).eq('is_active', true).maybeSingle();
+      if (full.error && /max_percent/.test(full.error.message || '')) full = await sb.from('providers').select(cols).eq('id', id).eq('is_active', true).maybeSingle();
       if (!full.error) return full;
       console.warn('Partner page fallback:', full.error.message);   // an update (006/007) is missing in the database
       return sb.from('providers').select('id,name,image_path,discount_percent,notes').eq('id', id).eq('is_active', true).maybeSingle();
@@ -42,9 +43,11 @@ async function main() {
       h('div', { class: 'p-meta' },
         p.area?.name ? h('span', { class: 'p-area' }, icon('pin'), p.area.name) : null,
         p.category?.name ? h('span', { class: 'chip' }, catIcon(p.category.icon), p.category.name) : null),
-      h('div', { class: 'offpill' }, `${pct(p.discount_percent)}%`, h('small', { text: S('off_suffix').replace('%', '').trim() })),
+      offBadge(p, 'offpill'),
       tabs, offerPane, branchPane)));
+  const offersBox = h('div');
   offerPane.append(
+      offersBox,
       rules.length ? h('div', { class: 'rules' }, h('div', { class: 'rules-title' }, icon('clock'), h('b', { text: S('rules_title') })),
         h('ul', {}, rules.map((r) => h('li', { text: r })))) : null,
       usageBox,
@@ -52,6 +55,10 @@ async function main() {
       h('a', { class: 'btn block pill', href: 'membership.html', text: isMember ? S('provider_cta_member') : S('provider_cta_guest') }),
       isCustomer ? h('a', { class: 'small center muted', href: `report.html?provider=${encodeURIComponent(p.id)}`, text: `${S('report_title')} →` }) : null);
   loadBranches(p, branchPane, tabCount);
+  loadOffers(p.id).then((list) => {
+    if (!list.length) return;   // only the standard discount: the pill above says it all
+    offersBox.append(h('h2', { text: S('offers_heading') }), offersList(p, list));
+  });
   if (isMember && (p.limit_count || p.allowed_days)) {
     const { data: u } = await sb.rpc('my_provider_usage', { p_provider: p.id });
     const t = usageText(u);

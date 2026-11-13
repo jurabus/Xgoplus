@@ -303,7 +303,7 @@ def main():
     denied("admin dup username", A, "select public.admin_create_provider('gym2','Passw0rd!','X',10,'')", contains="username_taken")
     denied("admin weak password", A, "select public.admin_create_provider('newp','short','X',10,'')", contains="weak_password")
     denied("admin bad username", A, "select public.admin_create_provider('Bad Name!','Passw0rd!','X',10,'')", contains="invalid_username")
-    denied("admin bad discount", A, "select public.admin_create_provider('newp2','Passw0rd!','X',0,'')")
+    denied("admin bad discount", A, "select public.admin_create_provider('newp2','Passw0rd!','X',-1,'')")
     rows = ok(A, "select username, total from public.admin_list_providers('gym', 10, 0)")
     check("admin lists providers with search", rows == [("gym2", 1)], str(rows))
     ok(A, "select public.admin_update_provider(%s, '{\"is_active\": false, \"sort_order\": 3, \"discount_percent\": 30}')", (p2,))
@@ -798,6 +798,71 @@ def main():
     check("area counts use branches", any(r[0] for r in ok(A, "select * from public.admin_area_counts()")))
     denied("branch needs area or address", A, "insert into public.branches (provider_id) values (%s)", (p1,), contains="branch_needs_area_or_address")
     check("schema 011", ok(G, "select public.schema_status()->>'m011'")[0][0] == "true")
+
+    # ------------------------------------------------------------ 012: multiple discounts (offers)
+    p9 = ok(A, "select public.admin_create_provider('clinic9', 'Passw0rd!', 'Clinic Nine', 10, '')")[0][0]
+    p9u = ok(None, "select user_id from public.providers where id=%s", (p9,))[0][0]
+    check("max = standard without offers", float(ok(G, "select max_percent from public.providers where id=%s", (p9,))[0][0]) == 10)
+    now_t = "(now() at time zone 'Africa/Cairo')::time"
+    tr = ok(A, f"insert into public.discount_rules (provider_id, kind, title, percent, start_time, end_time) values (%s, 'time', 'Lunch <b>', 30, {now_t} - interval '1 hour', {now_t} + interval '1 hour') returning id, title", (p9,))[0]
+    check("offer title sanitized", "<" not in tr[1], tr[1])
+    ok(A, f"insert into public.discount_rules (provider_id, kind, title, percent, start_time, end_time) values (%s, 'time', 'Night', 45, {now_t} + interval '2 hours', {now_t} + interval '3 hours')", (p9,))
+    ok(A, "insert into public.discount_rules (provider_id, kind, percent) values (%s, 'first', 50)", (p9,))
+    ok(A, "insert into public.discount_rules (provider_id, kind, title, percent, sort_order) values (%s, 'service', 'Initial assessment', 50, 1), (%s, 'service', 'Cupping', 30, 2), (%s, 'service', 'Massage', 20, 3)", (p9, p9, p9))
+    check("max_percent follows best offer", float(ok(G, "select max_percent from public.providers where id=%s", (p9,))[0][0]) == 50)
+    denied("second first-visit offer rejected", A, "insert into public.discount_rules (provider_id, kind, percent) values (%s, 'first', 40)", (p9,))
+    denied("time offer needs times", A, "insert into public.discount_rules (provider_id, kind, percent) values (%s, 'time', 40)", (p9,))
+    denied("service offer needs a name", A, "insert into public.discount_rules (provider_id, kind, percent) values (%s, 'service', 40)", (p9,))
+    denied("offer percent > 100 rejected", A, "insert into public.discount_rules (provider_id, kind, title, percent) values (%s, 'service', 'x', 150)", (p9,))
+    denied("offer bad weekday rejected", A, "insert into public.discount_rules (provider_id, kind, percent, start_time, end_time, days) values (%s, 'time', 5, '10:00', '11:00', '{9}')", (p9,))
+    for who in (G, c1, p9u):
+        denied("non-admin cannot add offer", who, "insert into public.discount_rules (provider_id, kind, title, percent) values (%s, 'service', 'x', 90)", (p9,))
+    ok(p9u, "update public.discount_rules set percent=99")
+    check("partner cannot edit offers", ok(None, "select count(*) from public.discount_rules where percent=99")[0][0] == 0)
+    check("guest sees active offers", len(ok(G, "select kind, title, percent, start_time, end_time, days from public.discount_rules where provider_id=%s", (p9,))) == 6)
+    check("partner sees own offers", len(ok(p9u, "select id from public.discount_rules where provider_id=%s", (p9,))) == 6)
+
+    def scan9():
+        tok = ok(c1, "select public.get_member_qr()")[0][0]["token"]
+        return ok(p9u, "select public.verify_member_qr(%s)", (tok,))[0][0]
+    def age9():   # pretend the last visit was a while ago
+        ok(None, "update public.scans set created_at = now() - interval '2 days' where provider_id=%s", (p9,))
+    r = scan9()
+    check("first visit gets first-visit offer", r["status"] == "active" and float(r["discount_percent"]) == 50 and r["discount_kind"] == "first", str(r))
+    check("scan lists service offers", [(x["title"], float(x["percent"])) for x in r["services"]] == [("Initial assessment", 50), ("Cupping", 30), ("Massage", 20)], str(r["services"]))
+    check("scan shows standard", float(r["standard_percent"]) == 10)
+    r = scan9()
+    check("re-scan same checkout keeps first visit", r["repeat"] and r["discount_kind"] == "first" and float(r["discount_percent"]) == 50, str(r))
+    age9()
+    r = scan9()
+    check("next visit gets time offer", r["discount_kind"] == "time" and float(r["discount_percent"]) == 30 and r["time_title"] == tr[1] and r["time_from"], str(r))
+    check("scan stores why", ok(A, "select discount_kind, discount_percent from public.scans where provider_id=%s order by id desc limit 1", (p9,))[0] == ("time", 30))
+    ok(A, "update public.discount_rules set is_active=false where provider_id=%s and kind='time'", (p9,))
+    age9()
+    r = scan9()
+    check("outside offers -> standard", r["discount_kind"] == "standard" and float(r["discount_percent"]) == 10, str(r))
+    check("hidden offer not public", len(ok(G, "select id from public.discount_rules where provider_id=%s", (p9,))) == 4)
+    # time window over midnight that excludes now, and weekday filter
+    ok(A, f"update public.discount_rules set is_active=true, start_time={now_t} + interval '1 hour', end_time={now_t} - interval '1 hour' where provider_id=%s and title='Night'", (p9,))
+    check("window over midnight excluding now", ok(None, "select count(*) from private.time_rule_now(%s)", (p9,))[0][0] == 0)
+    ok(A, f"update public.discount_rules set start_time={now_t} - interval '1 hour', end_time={now_t} + interval '1 hour', days=array[(extract(dow from now() at time zone 'Africa/Cairo')::int + 1) %% 7]::smallint[] where provider_id=%s and title='Night'", (p9,))
+    check("offer on another weekday not applied", ok(None, "select count(*) from private.time_rule_now(%s)", (p9,))[0][0] == 0)
+    ok(A, "update public.discount_rules set days=array[0,1,2,3,4,5,6]::smallint[] where provider_id=%s and title='Night'", (p9,))
+    check("all 7 days stored as every day", ok(A, "select days from public.discount_rules where provider_id=%s and title='Night'", (p9,))[0][0] is None)
+    check("time offer applies today", float(ok(None, "select percent from private.time_rule_now(%s)", (p9,))[0][0]) == 45)
+    ok(A, "select public.admin_update_provider(%s, '{\"discount_percent\": 0}')", (p9,))
+    check("standard discount may be 0", float(ok(G, "select discount_percent from public.providers where id=%s", (p9,))[0][0]) == 0)
+    ok(A, "delete from public.discount_rules where provider_id=%s and kind in ('first', 'time')", (p9,))
+    check("max_percent drops after delete", float(ok(G, "select max_percent from public.providers where id=%s", (p9,))[0][0]) == 50)
+    age9()
+    r = scan9()
+    check("services-only partner: 0% standard + list", float(r["discount_percent"]) == 0 and len(r["services"]) == 3, str(r))
+    hf = ok(G, "select public.home_feed(null, 20, 5, 10)")[0][0]
+    t9 = [t for t in hf["top"] if t["name"] == "Clinic Nine"]
+    check("home feed has max_percent", t9 and float(t9[0]["max_percent"]) == 50 and float(t9[0]["discount_percent"]) == 0, str(t9))
+    r = ok(G, "select name, max_percent from public.search_providers('clinic', null, 20, 0, 40, null)")
+    check("discount filter uses best offer", [x[0] for x in r] == ["Clinic Nine"], str(r))
+    check("schema 012", ok(G, "select public.schema_status()->>'m012'")[0][0] == "true")
 
     # ------------------------------------------------------------ performance (~20k rows)
     t = time.time()

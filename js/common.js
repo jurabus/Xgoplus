@@ -305,16 +305,18 @@ export async function uploadProof(userId, requestId, file) {
 
 // Partner lists with their area name. If the areas update (007) isn't in the database yet,
 // fall back to the plain columns instead of showing nothing.
-let areasEmbedOk = true;
+const dbFeat = { areas: true, max: true };   // features of updates 007 / 012 (switched off if missing)
 export async function selectProviders(build) {
-  if (areasEmbedOk) {
-    const r = await build(PROVIDER_COLS, true);
+  for (let i = 0; i < 3; i++) {
+    const cols = ['id,name,image_path,discount_percent', dbFeat.max ? 'max_percent' : null, dbFeat.areas ? 'area:areas(name)' : null].filter(Boolean).join(',');
+    const r = await build(cols, dbFeat.areas, dbFeat);
     if (!r.error) return r;
-    if (!/areas|relationship|schema cache|area_id/i.test(r.error.message || '')) return r;
-    areasEmbedOk = false;
-    console.warn('Areas not available in the database yet — run supabase/migrations/007_areas.sql');
+    const m = r.error.message || '';
+    if (dbFeat.max && /max_percent/i.test(m)) { dbFeat.max = false; console.warn('Offers not in the database yet — run supabase/migrations/012_offers.sql'); continue; }
+    if (dbFeat.areas && /areas|relationship|schema cache|area_id/i.test(m)) { dbFeat.areas = false; console.warn('Areas not available in the database yet — run supabase/migrations/007_areas.sql'); continue; }
+    return r;
   }
-  return build('id,name,image_path,discount_percent', false);
+  return { data: null, error: new Error('Partners unavailable') };
 }
 
 // ---------- feedback ----------
@@ -675,11 +677,57 @@ export function providerCard(p) {
     p.image_path
       ? h('img', { src: mediaUrl(p.image_path), alt: '', loading: 'lazy', decoding: 'async', width: 400, height: 430 })
       : h('div', { class: 'ph', text: initialOf(p.name) }),
-    h('span', { class: 'off' }, `${pct(p.discount_percent)}%`, h('small', { text: S('off_suffix').replace('%', '').trim() })),
+    offBadge(p, 'off'),
     h('div', { class: 'meta' }, h('span', { class: 'name', text: p.name }),
       area ? h('span', { class: 'area' }, icon('pin'), h('span', { text: area })) : null));
 }
-export const PROVIDER_COLS = 'id,name,image_path,discount_percent,area:areas(name)';
+export const PROVIDER_COLS = 'id,name,image_path,discount_percent,max_percent,area:areas(name)';
+
+// ---------- discounts: standard + offers (time / first visit / services) ----------
+export function bestPct(p) { return Math.max(Number(p.max_percent) || 0, Number(p.discount_percent) || 0); }
+export function offBadge(p, cls) {
+  const more = bestPct(p) > (Number(p.discount_percent) || 0);
+  return h('span', { class: cls }, more ? h('small', { class: 'upto', text: S('up_to') }) : null,
+    `${pct(bestPct(p))}%`, h('small', { text: S('off_suffix').replace('%', '').trim() }));
+}
+export function fmtTime(t) {
+  const [hh, mm] = String(t || '').split(':').map(Number);
+  if (Number.isNaN(hh)) return '';
+  return new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(new Date(2000, 0, 1, hh, mm || 0));
+}
+export function offerWhen(r) {
+  const parts = [`${fmtTime(r.start_time)} – ${fmtTime(r.end_time)}`];
+  if (r.days?.length && r.days.length < 7) { const n = dayNames(true); parts.push(r.days.map((d) => n[d]).join(', ')); }
+  return parts.join(' · ');
+}
+export async function loadOffers(providerId) {
+  const { data, error } = await sb.from('discount_rules').select('id,kind,title,percent,start_time,end_time,days,sort_order,is_active')
+    .eq('provider_id', providerId).eq('is_active', true).order('sort_order').order('percent', { ascending: false }).limit(100);
+  if (error) console.warn('Offers unavailable:', error.message);   // update 012 not applied yet
+  return data || [];
+}
+// All of a partner's discounts as a list (partner page, partner portal)
+export function offersList(p, rules) {
+  const rows = [];
+  const row = (percent, title, sub, cls = '') => h('div', { class: `offer-row ${cls}` },
+    h('span', { class: 'offer-pct', text: `${pct(percent)}%` }),
+    h('div', { class: 'grow' }, h('b', { text: title }), sub ? h('div', { class: 'small muted', text: sub }) : null));
+  const first = rules.find((r) => r.kind === 'first');
+  const times = rules.filter((r) => r.kind === 'time');
+  const services = rules.filter((r) => r.kind === 'service');
+  if (first) rows.push(row(first.percent, first.title || S('offer_first'), S('offer_first_sub'), 'hot'));
+  for (const r of times) rows.push(row(r.percent, r.title || S('offer_time'), offerWhen(r), 'hot'));
+  if (Number(p.discount_percent) > 0) {
+    rows.push(row(p.discount_percent, S('offer_standard'), first || times.length ? S('offer_standard_rest') : S('offer_standard_sub')));
+  }
+  const box = h('div', { class: 'offers' });
+  if (rows.length) box.append(h('div', { class: 'offer-list' }, rows));
+  if (services.length) {
+    box.append(h('div', { class: 'offer-svc-title' }, h('b', { text: S('offer_services') })),
+      h('div', { class: 'offer-list svc' }, services.map((r) => row(r.percent, r.title, ''))));
+  }
+  return box;
+}
 export function categoryChips(cats, selected, onPick) {
   const bar = h('div', { class: 'chips', role: 'tablist', 'aria-label': S('categories_heading') });
   const mk = (id, label, iconTxt) => {

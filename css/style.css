@@ -575,3 +575,23 @@ input[type=file] { max-width: 100%; font-size: 14px; }
 .si-instagram { background: linear-gradient(45deg, #f9a825, #e91e63 55%, #7b1fa2); }
 .si-messenger { background: #0084ff; } .si-telegram { background: #229ed9; } .si-x { background: #111; }
 .si-sms { background: #34c759; } .si-email { background: #6b6690; } .si-copy { background: var(--brand); } .si-more { background: var(--brand-deep); }
+
+/* ---------- offers (multiple discounts) ---------- */
+.upto { display: inline; font-weight: 700; letter-spacing: .02em; text-transform: uppercase; opacity: .9; }
+.dcard .off .upto { font-size: 10px; margin-right: 2px; }
+.offpill .upto { display: inline; font-size: 13px; margin-right: 6px; vertical-align: middle; }
+.sug-off .upto { display: inline; font-size: 10px; margin-right: 3px; }
+.offers { display: grid; gap: 10px; }
+.offer-list { display: grid; gap: 8px; }
+.offer-row { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 14px; background: var(--card); }
+.offer-pct { flex: none; min-width: 62px; text-align: center; font-weight: 800; font-size: 18px; color: var(--brand); background: var(--brand-soft); border-radius: 10px; padding: 6px 8px; }
+.offer-row.hot .offer-pct { background: var(--brand); color: #ffc928; }
+.offer-svc-title { margin-top: 4px; }
+.badge.hot { background: var(--brand); color: #ffc928; margin: 6px 0; }
+.big-sub { font-size: 20px; font-weight: 800; margin: 10px 0; }
+.scan-svc { background: rgba(255, 255, 255, .7); border-radius: 12px; padding: 10px 12px; margin: 10px 0; text-align: left; color: var(--ink); }
+.scan-svc ul { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 4px; }
+.scan-svc li { display: flex; justify-content: space-between; gap: 10px; border-top: 1px dashed var(--line); padding-top: 4px; }
+.day-picks { display: flex; flex-wrap: wrap; gap: 6px; }
+.day-pick { display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--line); border-radius: 999px; padding: 4px 10px; font-size: 13px; cursor: pointer; }
+.offer-item .offer-pct { min-width: 54px; font-size: 15px; }
