@@ -201,6 +201,19 @@ export default {
   "scan_offer_first": "First visit offer",
   "scan_offer_time": "Time offer",
   "scan_services": "Service discounts",
-  "scan_no_standard": "Discount by service — see the list"
+  "scan_no_standard": "Discount by service — see the list",
+  "app_enabled_modules": [],
+  "explore_min_pct": 40,
+  "explore_min_scans": 1,
+  "nav_explore": "Explore",
+  "explore_title": "Explore",
+  "explore_sub": "Offers picked for you from places you'll love.",
+  "explore_empty": "Nothing new for you yet — use your XGo+ discounts and we'll find more offers you'll like.",
+  "explore_guest_hint": "Log in so we can show you offers that match your interests.",
+  "explore_sponsored": "Sponsored",
+  "explore_visit": "Visit us",
+  "explore_off": "Explore isn't available right now.",
+  "explore_more": "Load more",
+  "explore_see_more": "See more"
 }
 ;

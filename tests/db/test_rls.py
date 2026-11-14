@@ -864,6 +864,77 @@ def main():
     check("discount filter uses best offer", [x[0] for x in r] == ["Clinic Nine"], str(r))
     check("schema 012", ok(G, "select public.schema_status()->>'m012'")[0][0] == "true")
 
+    # ------------------------------------------------------------ 013: interests + Explore ads
+    beauty = ok(A, "insert into public.categories (name, icon) values ('Beauty', '💅') returning id")[0][0]
+    food = ok(A, "insert into public.categories (name, icon) values ('Food', '🍔') returning id")[0][0]
+    pb = ok(A, "select public.admin_create_provider('beauty1', 'Passw0rd!', 'Glow Spa', 20, '')")[0][0]
+    pf = ok(A, "select public.admin_create_provider('food1', 'Passw0rd!', 'Burger Hub', 10, '')")[0][0]
+    ok(None, "update public.providers set category_id=%s where id=%s", (beauty, pb))
+    ok(None, "update public.providers set category_id=%s where id=%s", (food, pf))
+    # fresh members so earlier scans don't skew the numbers
+    m1, _ = signup("201660000001", "Sara", "Beauty"); m2, _ = signup("201660000002", "Omar", "Food"); m3, _ = signup("201660000003", "No", "Scans")
+    def put_scans(uid, pid, n, counted=True):
+        for _ in range(n):
+            ok(None, "insert into public.scans (provider_id, member_id, member_label, result, discount_percent, counted) values (%s, %s, 'x', 'active', 10, %s)", (pid, uid, counted))
+    put_scans(m1, pb, 3); put_scans(m1, pf, 1); put_scans(m1, pb, 5, counted=False)   # 75% beauty (not-counted ignored)
+    put_scans(m2, pb, 1); put_scans(m2, pf, 4)                                          # 20% beauty
+    r = dict((n, (sc, float(pc))) for _, n, sc, _, pc in ok(A, "select * from public.admin_member_interests(%s)", (m1,)))
+    check("member interest %", r == {"Beauty": (3, 75.0), "Food": (1, 25.0)}, str(r))
+    for who in (G, c1, p1u):
+        denied("non-admin interest report", who, "select public.admin_member_interests(%s)", (m1,))
+        denied("non-admin interest summary", who, "select public.admin_interest_summary()")
+        denied("non-admin interest ranking", who, "select public.admin_interest_members(%s)", (beauty,))
+        denied("non-admin audience", who, "select public.admin_ad_audience(%s)", (beauty,))
+    summ = ok(A, "select public.admin_interest_summary()")[0][0]
+    b = [c for c in summ["categories"] if c["name"] == "Beauty"][0]
+    check("summary: beauty scans + interested at 40%", b["scans"] == 4 and b["members"] == 2 and b["interested"] == 1 and float(summ["min_pct"]) == 40, str(b))
+    rk = ok(A, "select first_name, pct from public.admin_interest_members(%s, 0)", (beauty,))
+    check("ranking by interest", [x[0] for x in rk] == ["Sara", "Omar"], str(rk))
+    check("audience at 40%", ok(A, "select public.admin_ad_audience(%s)", (beauty,))[0][0] == 1)
+    check("audience at 15%", ok(A, "select public.admin_ad_audience(%s, 15)", (beauty,))[0][0] == 2)
+
+    # ads (admin only)
+    denied("non-admin cannot add ad", c1, "insert into public.explore_ads (advertiser, image_path, category_id) values ('x', 'explore/a.webp', %s)", (beauty,))
+    check("non-admin cannot read ads table", ok(c1, "select count(*) from public.explore_ads")[0][0] == 0)
+    denied("ad link must be https", A, "insert into public.explore_ads (advertiser, image_path, category_id, link_url) values ('x', 'explore/a.webp', %s, 'javascript:alert(1)')", (beauty,))
+    ad_b = ok(A, "insert into public.explore_ads (advertiser, body, image_path, category_id, link_url, cta_label) values ('Nour <b>Beauty</b> Center', 'New laser offer', 'explore/b.webp', %s, 'https://nour.example.com/offer', 'Book now') returning id, advertiser", (beauty,))[0]
+    check("ad advertiser sanitized", "<" not in ad_b[1], ad_b[1])
+    ad_f = ok(A, "insert into public.explore_ads (advertiser, image_path, category_id, min_pct) values ('Pizza Place', 'explore/f.webp', %s, 50) returning id", (food,))[0][0]
+    ad_all = ok(A, "insert into public.explore_ads (advertiser, image_path, category_id, show_to_all, sort_order) values ('Mall Sale', 'explore/m.webp', %s, true, 5) returning id", (food,))[0][0]
+    ok(A, "insert into public.explore_ads (advertiser, image_path, category_id, ends_at) values ('Old', 'explore/o.webp', %s, now() - interval '1 day')", (beauty,))
+    ok(A, "insert into public.explore_ads (advertiser, image_path, category_id, is_active) values ('Hidden', 'explore/h.webp', %s, false)", (beauty,))
+    feed = lambda who: ok(who, "select public.explore_feed()")[0][0]
+    check("explore off by default", feed(m1) == {"enabled": False, "items": []}, str(feed(m1)))
+    check("track refused when off", ok(m1, "select public.explore_track(%s, 'view')", (ad_b[0],))[0][0] is False)
+    ok(A, "update public.settings set data = data || '{\"app_enabled_modules\": [\"explore\"]}'")
+    names = lambda who: [x["advertiser"] for x in feed(who)["items"]]
+    check("beauty fan sees beauty ad first + broad ad", names(m1) == [ad_b[1], "Mall Sale"], str(names(m1)))
+    check("food fan (80%) sees food ad (min 50%) + broad", names(m2) == ["Pizza Place", "Mall Sale"], str(names(m2)))
+    check("no scans: only broad ads", names(m3) == ["Mall Sale"], str(names(m3)))
+    check("guest: only broad ads", names(G) == ["Mall Sale"], str(names(G)))
+    it = feed(m1)["items"][0]
+    check("feed item fields", it["targeted"] and it["link_url"] == "https://nour.example.com/offer" and it["cta_label"] == "Book now" and it["category"] == "Beauty", str(it))
+    ok(A, "update public.settings set data = data || '{\"explore_min_pct\": 80}'")
+    check("admin threshold applies", names(m1) == ["Mall Sale"], str(names(m1)))
+    ok(A, "update public.settings set data = data || '{\"explore_min_pct\": 40, \"explore_min_scans\": 5}'")
+    check("min lifetime scans applies", names(m1) == ["Mall Sale"] and names(m2) == ["Pizza Place", "Mall Sale"], str((names(m1), names(m2))))
+    ok(A, "update public.settings set data = data || '{\"explore_min_scans\": 1}'")
+    # tracking
+    check("track view", ok(m1, "select public.explore_track(%s, 'view')", (ad_b[0],))[0][0] is True)
+    ok(m1, "select public.explore_track(%s, 'view')", (ad_b[0],))
+    ok(m1, "select public.explore_track(%s, 'click')", (ad_b[0],))
+    check("cannot track ad not shown to you", ok(m3, "select public.explore_track(%s, 'view')", (ad_b[0],))[0][0] is False)
+    denied("guest cannot track", G, "select public.explore_track(%s, 'view')", (ad_b[0],))
+    denied("events not readable", m1, "select count(*) from public.explore_events")
+    st = {r[0]: r[1:] for r in ok(A, "select * from public.admin_explore_stats()")}
+    check("stats: 1 daily view, 1 click, audience 1", st[ad_b[0]] == (1, 1, 1, 1), str(st[ad_b[0]]))
+    denied("non-admin stats", c1, "select public.admin_explore_stats()")
+    ok(A, "update public.settings set data = data || '{\"app_disabled_modules\": [\"explore\"]}'")
+    check("disabled module hides feed", feed(m1)["enabled"] is False)
+    ok(A, "update public.settings set data = data - 'app_disabled_modules'")
+    t0 = time.time(); ok(m1, "select public.explore_feed()"); check("perf explore feed", time.time() - t0 < 1.0)
+    check("schema 013", ok(G, "select public.schema_status()->>'m013'")[0][0] == "true")
+
     # ------------------------------------------------------------ performance (~20k rows)
     t = time.time()
     ok(None, """

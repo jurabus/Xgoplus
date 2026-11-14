@@ -8,6 +8,7 @@ CSP = ("default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'
 PAGES = {  # file: (title, script, description or None, noindex)
     'index': ('XGo+ — More Savings. More Comfort.', 'home', 'Discounts for XGo+ members at restaurants, cafés, doctors, salons, car washes and more.', False),
     'offers': ('Offers · XGo+', 'offers', 'All XGo+ partner offers.', False),
+    'explore': ('Explore · XGo+', 'explore', 'Offers picked for you on XGo+.', False),
     'search': ('Search · XGo+', 'search', None, True),
     'provider': ('Partner · XGo+', 'provider', None, False),
     'about': ('About · XGo+', 'about', 'About XGo+ and how to contact us.', False),

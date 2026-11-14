@@ -1,8 +1,23 @@
-import { sb, h, errMsg, busy, toast, confirmDialog, fmtDate, localPhone } from '../common.js';
+import { sb, h, errMsg, busy, toast, confirmDialog, fmtDate, localPhone, pct } from '../common.js';
 import { sheet, field, input, pagedList } from './ui.js';
 
 let list, q = '';
 const BADGE = { active: ['ok', 'Active'], expired: ['bad', 'Expired'], none: ['brand', 'No membership'] };
+
+function interestsBox(uid) {
+  const box = h('div', { class: 'card stack' }, h('b', { text: 'Interests (from scans)' }), h('div', { class: 'small muted', text: 'Loading…' }));
+  sb.rpc('admin_member_interests', { p_user: uid }).then(({ data, error }) => {
+    box.lastChild.remove();
+    if (error) { box.append(h('div', { class: 'small muted', text: 'Not available — run update 013.' })); return; }
+    if (!data?.length) { box.append(h('div', { class: 'small muted', text: 'No scans yet.' })); return; }
+    box.append(h('div', { class: 'small muted', text: `${data[0].total} lifetime scans` }));
+    for (const r of data) {
+      const i = h('i'); i.style.width = `${Math.min(100, Number(r.pct))}%`;
+      box.append(h('div', { class: 'int-row' }, h('div', { class: 'row' }, h('span', { class: 'grow', text: r.name }), h('b', { text: `${pct(r.pct)}% · ${r.scans}` })), h('div', { class: 'bar' }, i)));
+    }
+  });
+  return box;
+}
 
 function memberSheet(m) {
   const days = input({ type: 'number', min: 1, max: 3660, value: 365 });
@@ -14,6 +29,7 @@ function memberSheet(m) {
       h('div', {}, 'Phone: ', h('a', { href: `tel:+${m.phone}`, text: localPhone(m.phone) })),
       h('div', {}, 'Joined: ', fmtDate(m.created_at)),
       h('div', {}, 'Membership: ', h('span', { class: `badge ${cls}`, text: label }), m.expires_at ? ` until ${fmtDate(m.expires_at)}` : '')),
+    interestsBox(m.id),
     h('h2', { text: 'Extend / grant membership' }),
     h('div', { class: 'row' }, h('div', { class: 'grow' }, field('Days to add', days)), grant),
     m.status === 'active' ? h('div', { class: 'stack' }, h('div'), revoke) : null);
