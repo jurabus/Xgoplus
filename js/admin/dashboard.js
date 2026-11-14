@@ -3,12 +3,12 @@ import { sb, h, errMsg } from '../common.js';
 // Database updates the website expects (file name -> schema_status key)
 const MIGRATIONS = [
   ['m005', '005_categories_search.sql'], ['m006', '006_limits_history_complaints.sql'],
-  ['m007', '007_areas.sql'], ['m008', '008_payments_security.sql'], ['m009', '009_trial_session_paylink.sql'], ['m010', '010_home_feed.sql'], ['m011', '011_branches.sql'], ['m012', '012_offers.sql'],
+  ['m007', '007_areas.sql'], ['m008', '008_payments_security.sql'], ['m009', '009_trial_session_paylink.sql'], ['m010', '010_home_feed.sql'], ['m011', '011_branches.sql'], ['m012', '012_offers.sql'], ['m013', '013_interests_explore.sql'],
 ];
 
 async function schemaWarning() {
   const { data, error } = await sb.rpc('schema_status');
-  const missing = error ? MIGRATIONS.filter(([k]) => ['m007', 'm008', 'm009', 'm010', 'm011', 'm012'].includes(k)).map((m) => m[1])
+  const missing = error ? MIGRATIONS.filter(([k]) => ['m007', 'm008', 'm009', 'm010', 'm011', 'm012', 'm013'].includes(k)).map((m) => m[1])
     : MIGRATIONS.filter(([k]) => !data[k]).map((m) => m[1]);
   if (!missing.length) return null;
   return h('div', { class: 'warnbox stack' }, h('b', { text: 'Database update needed' }),

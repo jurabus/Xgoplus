@@ -68,6 +68,7 @@ Web app only (no native iOS/Android app).
 10. `migrations/010_home_feed.sql` — `home_feed()`: top 10 deals spread across categories + up to 5 category rows of 10
 11. `migrations/011_branches.sql` — partner branches (area, address, phone, Google Maps link; admin-only edits), `providers.area_ids` so the area filter matches any branch, search/home feed updated
 12. `migrations/012_offers.sql` — multiple discounts per partner: time windows (Egypt time, optional weekdays), first-visit discount, per-service discounts (admin-only); `providers.max_percent` for "Up to X%", scan picks the best applicable discount and lists services
+13. `migrations/013_interests_explore.sql` — member interests from scans (admin reports), Explore tab with category-targeted ads (opt-in module), view/click stats
 
 `supabase/setup_all.sql` = all of the above in one file (regenerate with `tools/gen-setup-all.sh`).
 

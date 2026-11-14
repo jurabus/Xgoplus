@@ -904,6 +904,60 @@ def main():
         a.wait_for_selector(".stat")
         shot(a, "46-admin-dashboard-after")
 
+        # interests + Explore ads
+        a.click(".admin-tabs >> text=Interests")
+        a.wait_for_selector("h2:has-text('Share of scans')")
+        expect(a.locator(".list .item").first).to_contain_text("Cafés")
+        shot(a, "47-admin-interests", full=False)
+        a.locator(".list .item").first.click()
+        expect(a.locator(".sheet .list .item").first).to_contain_text("Ahmed")
+        a.click(".sheet >> text=Close")
+        c.goto(SITE + "/")
+        c.wait_for_selector(".tabbar")
+        expect(c.locator(".tabbar >> text=Explore")).to_have_count(0)        # off by default
+        a.click(".admin-tabs >> text=Explore ads")
+        a.wait_for_selector("h2:has-text('Targeting')")
+        a.locator(".card .switch input").first.check()
+        a.click(".card >> text=Save")
+        a.wait_for_timeout(600)
+        assert sql("select data->'app_enabled_modules' from public.settings") == '["explore"]'
+        for adv, cat, everyone in (("Nour Beauty Lounge", "Cafés", False), ("City Mall Sale", "Gyms", True), ("Pizza Corner", "Gyms", False)):
+            a.click("text=+ New ad")
+            ads = a.locator(".sheet").last
+            ads.locator("input[type=file]").first.set_input_files(banner_img)
+            ads.locator("img.preview").first.wait_for()
+            ads.locator("input").nth(1).fill(adv)
+            ads.locator("textarea").fill("Grand opening week! 30% off every service for XGo+ friends.\nBook your visit today.")
+            ads.locator("input[type=url]").fill("javascript:alert(1)")
+            ads.locator("select").select_option(label=cat)
+            if everyone: ads.locator(".switch input").first.check()
+            ads.locator("button[type=submit]").click()
+            if adv == "Nour Beauty Lounge":
+                expect(ads.locator(".form-error")).to_contain_text("https://")
+                expect(ads.locator(".card.small")).to_contain_text("Reaches")
+                shot(a, "48-admin-explore-new-ad", full=False)
+            ads.locator("input[type=url]").fill("https://nour.example.com/offer")
+            ads.locator("button[type=submit]").click()
+            expect(a.locator(".sheet")).to_have_count(0)
+        expect(a.locator(".ad-item")).to_have_count(3)
+        shot(a, "49-admin-explore-ads", full=False)
+        # customer (all scans at Cafés) sees the Cafés ad first, then the broad one; not the Gyms-only ad
+        c.goto(SITE + "/explore.html")
+        c.wait_for_selector(".ad-card")
+        assert c.locator(".ad-name").all_text_contents() == ["Nour Beauty Lounge", "City Mall Sale"], c.locator(".ad-name").all_text_contents()
+        c.reload(); c.wait_for_selector(".ad-card")
+        expect(c.locator(".tabbar >> text=Explore")).to_have_count(1)
+        assert c.locator(".ad-cta").first.get_attribute("href") == "https://nour.example.com/offer"
+        assert c.locator(".ad-cta").first.get_attribute("rel") == "noopener noreferrer"
+        c.wait_for_timeout(1200)
+        shot(c, "52-explore-feed", full=False)
+        assert int(sql("select count(*) from public.explore_events where kind='view'")) >= 1
+        # guest: only the broad ad + log-in hint
+        g.goto(SITE + "/explore.html")
+        g.wait_for_selector(".ad-card")
+        assert g.locator(".ad-name").all_text_contents() == ["City Mall Sale"]
+        expect(g.locator(".explore-hint")).to_be_visible()
+
         # desktop view of home
         d = browser.new_context(viewport={"width": 1280, "height": 860}); wire(d, "desktop")
         dp = d.new_page(); dp.goto(SITE + "/"); dp.wait_for_selector(".dcard")

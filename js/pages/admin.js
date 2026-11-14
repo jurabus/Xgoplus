@@ -16,6 +16,8 @@ const TABS = [
   { id: 'areas', title: 'Areas' },
   { id: 'members', title: 'Members' },
   { id: 'banners', title: 'Banners' },
+  { id: 'interests', title: 'Interests' },
+  { id: 'explore', title: 'Explore ads' },
   { id: 'texts', title: 'Texts & settings' },
   { id: 'complaints', title: 'Reports' },
   { id: 'scans', title: 'Scans' },

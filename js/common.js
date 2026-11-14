@@ -95,6 +95,7 @@ const ICONS = {
   grid: 'M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z',
   info: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zm0-11v6m0-9h.01',
   tag: 'M3 12V3h9l9 9-9 9zM7.5 7.5h.01',
+  compass: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM15.5 8.5l-2 5-5 2 2-5z',
   logout: 'M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9',
   wa: 'M4 20l1.3-4A8 8 0 1 1 8 18.7zM9 9c0 3 3 6 6 6l1-1.5-2-1-1 1c-1 0-2.5-1.5-2.5-2.5l1-1-1-2z',
 };
@@ -407,9 +408,12 @@ export function busy(btn, on, label) {
 }
 
 // ---------- page shell ----------
+const OPT_IN_MODULES = ['explore'];   // off until switched on in Admin → Modules
 export function moduleOn(id) {
   const off = S('app_disabled_modules');
-  return !(Array.isArray(off) && off.includes(id));
+  if (Array.isArray(off) && off.includes(id)) return false;
+  if (OPT_IN_MODULES.includes(id)) { const on = S('app_enabled_modules'); return Array.isArray(on) && on.includes(id); }
+  return true;
 }
 function navFor(ctx) {
   const role = ctx.role;
@@ -424,8 +428,11 @@ function navFor(ctx) {
     { href: 'index.html', key: 'home', label: S('nav_home'), icon: 'home' },
     { href: 'offers.html', key: 'offers', label: S('nav_offers'), icon: 'tag' },
   ];
+  const explore = moduleOn('explore');
+  if (explore) items.push({ href: 'explore.html', key: 'explore', label: S('nav_explore'), icon: 'compass' });
   if (moduleOn('membership')) items.push({ href: 'membership.html', key: 'membership', label: S('nav_membership'), icon: 'card' });
-  if (role === 'customer' && moduleOn('complaints')) items.push({ href: 'report.html', key: 'report', label: S('nav_report'), icon: 'flag' });
+  // with Explore on, reports move to the Account page (keeps the tab bar at 5)
+  if (role === 'customer' && moduleOn('complaints') && !explore) items.push({ href: 'report.html', key: 'report', label: S('nav_report'), icon: 'flag' });
   if (role === 'guest' || role === 'none') items.push({ href: 'login.html', key: 'login', label: S('nav_login'), icon: 'login' });
   else items.push({ href: role === 'admin' ? 'admin.html' : 'account.html', key: 'account', label: role === 'admin' ? 'Admin' : S('nav_account'), icon: role === 'admin' ? 'shield' : 'user' });
   return items;
