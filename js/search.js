@@ -15,11 +15,45 @@ export function mountSearch(container, initial = '', { hero = false } = {}) {
   const clearBtn = h('button', { class: 'search-clear', type: 'button', 'aria-label': 'Clear', hidden: !initial }, icon('x'));
   const pop = h('div', { class: 'search-pop', id: hero ? 'search-pop-hero' : 'search-pop', role: 'listbox', hidden: true });
   const form = h('form', { class: `hsearch${hero ? ' with-area' : ''}`, role: 'search', action: 'search.html' },
-    icon('search', 's-ic'), input, clearBtn, hero ? areaPill() : null, pop);
+    icon('search', 's-ic'), input, clearBtn, hero ? areaPill() : null);
   container.append(form);
+  document.body.append(pop);   // outside every clipping/blurred container
 
   let seq = 0, timer = 0, active = -1, items = [];
-  const open = (on) => { pop.hidden = !on; input.setAttribute('aria-expanded', String(on)); };
+  // The list is pinned to the screen under the search box, so no section (e.g. the home hero,
+  // which clips its overflow) can cut it off. Re-placed on scroll, resize and keyboard changes.
+  const place = () => {
+    if (pop.hidden) return;
+    const r = form.getBoundingClientRect();
+    const vv = window.visualViewport;
+    const viewH = vv ? vv.height + vv.offsetTop : window.innerHeight;
+    const top = r.bottom + 8;
+    pop.style.top = `${Math.round(top)}px`;
+    pop.style.left = `${Math.round(r.left)}px`;
+    pop.style.width = `${Math.round(r.width)}px`;
+    pop.style.maxHeight = `${Math.max(160, Math.round(viewH - top - 12))}px`;
+  };
+  const listen = (on) => {
+    const f = on ? 'addEventListener' : 'removeEventListener';
+    window[f]('scroll', place, { passive: true, capture: true });
+    window[f]('resize', place);
+    window.visualViewport?.[f]('resize', place);
+    window.visualViewport?.[f]('scroll', place);
+  };
+  const open = (on) => {
+    const was = !pop.hidden;
+    pop.hidden = !on; input.setAttribute('aria-expanded', String(on));
+    if (on) place();
+    if (on !== was) listen(on);
+  };
+  // Phones: bring the box up under the header so the results have room above the keyboard.
+  const roomForResults = () => {
+    if (window.innerWidth >= 900) return;
+    const head = document.querySelector('.site-head');
+    const want = (head ? head.getBoundingClientRect().bottom : 0) + 8;
+    const r = form.getBoundingClientRect();
+    if (r.top > want + 40 || r.top < want - 4) window.scrollBy({ top: r.top - want, behavior: 'smooth' });
+  };
   const goAll = (q) => { location.href = `search.html?q=${encodeURIComponent(q.trim())}`; };
   const setActive = (i) => {
     active = i;
@@ -38,7 +72,7 @@ export function mountSearch(container, initial = '', { hero = false } = {}) {
       p_q: q, p_category: null, p_limit: SUGGEST_LIMIT, p_offset: 0, p_min_discount: null, p_area: getArea() || null,
     });
     if (my !== seq) return; // a newer keystroke won
-    clear(pop); active = -1;
+    clear(pop); active = -1; place();
     if (error) { pop.append(h('div', { class: 'search-empty', text: 'Search is unavailable right now.' })); return; }
     items = data.map((p, i) => h('a', { class: 'sug', role: 'option', id: `sug-${i}`, href: `provider.html?id=${encodeURIComponent(p.id)}` },
       p.image_path ? h('img', { src: mediaUrl(p.image_path), alt: '', loading: 'lazy', width: 48, height: 48 }) : h('span', { class: 'thumb', text: initialOf(p.name) }),
@@ -47,10 +81,11 @@ export function mountSearch(container, initial = '', { hero = false } = {}) {
     if (!items.length) pop.append(h('div', { class: 'search-empty', text: `${S('search_no_results')} “${q}”` }));
     pop.append(...items);
     if (items.length) pop.append(h('button', { class: 'btn block ghost sug-all', type: 'button', text: S('search_view_all'), onclick: () => goAll(q) }));
+    place();
   }
 
   input.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(suggest, 180); });
-  input.addEventListener('focus', () => { if (input.value.trim()) suggest(); });
+  input.addEventListener('focus', () => { roomForResults(); if (input.value.trim()) suggest(); });
   input.addEventListener('keydown', (e) => {
     if (e.key === 'ArrowDown' && items.length) { e.preventDefault(); setActive((active + 1) % items.length); }
     else if (e.key === 'ArrowUp' && items.length) { e.preventDefault(); setActive(active <= 0 ? items.length - 1 : active - 1); }
@@ -62,7 +97,7 @@ export function mountSearch(container, initial = '', { hero = false } = {}) {
     if (input.value.trim()) goAll(input.value);
   });
   clearBtn.addEventListener('click', () => { input.value = ''; clearBtn.hidden = true; open(false); clear(pop); input.focus(); });
-  document.addEventListener('pointerdown', (e) => { if (!form.contains(e.target)) open(false); });
+  document.addEventListener('pointerdown', (e) => { if (!form.contains(e.target) && !pop.contains(e.target)) open(false); });
   return input;
 }
 

@@ -410,6 +410,10 @@ def main():
         g.fill(".hsearch input", "aroam")
         g.wait_for_selector(".sug")
         expect(g.locator(".sug").first).to_contain_text("Cafe Aroma")
+        # the list must really be on top (not clipped or covered): the topmost element at each row's centre is that row
+        assert g.evaluate("""[...document.querySelectorAll('.search-pop:not([hidden]) .sug')].every((el) => {
+          const r = el.getBoundingClientRect(); const t = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+          return t && el.contains(t); })"""), "search suggestions are hidden behind other content"
         shot(g, "11c-search-typo", full=False)
         g.fill(".hsearch input", "shpo")
         g.wait_for_timeout(900)
