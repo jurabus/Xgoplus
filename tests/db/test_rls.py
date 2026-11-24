@@ -935,6 +935,127 @@ def main():
     t0 = time.time(); ok(m1, "select public.explore_feed()"); check("perf explore feed", time.time() - t0 < 1.0)
     check("schema 013", ok(G, "select public.schema_status()->>'m013'")[0][0] == "true")
 
+    # ------------------------------------------------------------ 014: automatic payment confirmation
+    NBE = "تم إضافة تحويل لحظي لحسابكم رقم 0110 بمبلغ {amt} جم من عبدالرحمن محمد عمر عبدالله حسن رقم مرجعي {ref} يوم 24-11 الساعة 03:09 للمزيد اتصل بـ 19623"
+    ETI = "تم إيداع مبلغ {amt}  في حسابك بنجاح من رقم حساب {ph} المسجل باسم نادر محمد شفيق عبدالفتاح عبدالحميد استخدم etisalat money هتكسب و العب هتكسب هدايا تانية كتير http:// spr.ly/Spin_The_Wheel"
+    p = ok(None, "select * from private.parse_bank_sms(%s)", (NBE.format(amt="240.00", ref="343307590709"),))[0]
+    check("parse NBE InstaPay SMS", p == ("instapay", 240, "343307590709", None, "عبدالرحمن محمد عمر عبدالله حسن"), str(p))
+    p = ok(None, "select * from private.parse_bank_sms(%s)", (ETI.format(amt="1.00", ph="00201153090784"),))[0]
+    check("parse e-wallet SMS", p == ("wallet", 1, None, "01153090784", "نادر محمد شفيق عبدالفتاح عبدالحميد"), str(p))
+    p = ok(None, "select kind, amount, from_phone from private.parse_bank_sms(%s)", ("تم استلام مبلغ ١٩٩ جنيه من رقم 01012345678 المسجل باسم احمد علي؛ رصيدك الحالي 500 جنيه",))[0]
+    check("parse Vodafone Cash style + Arabic digits", p == ("wallet", 199, "01012345678"), str(p))
+    for out in ("تم تحويل مبلغ 199 جنيه إلى رقم 01012345678", "تم خصم مبلغ 199 جم من حسابكم رقم مرجعي 123456789012", "Your OTP is 123456"):
+        check("ignore outgoing/other SMS: " + out[:20], ok(None, "select kind from private.parse_bank_sms(%s)", (out,))[0][0] == "other")
+
+    ok(A, "update public.settings set data = data || '{\"payment_mode\": \"active\", \"membership_price_egp\": 199, \"autopay_enabled\": false}'")
+    ok(A, "update public.payment_accounts set auto_confirm = (value in ('xgo.one@instapay', '01001234567'))")
+    check("options say autopay off", ok(G, "select public.payment_options()->>'autopay'")[0][0] == "false")
+    # pairing
+    denied("non-admin cannot make pairing code", c1, "select public.admin_sms_pair_code('x')")
+    code = ok(A, "select public.admin_sms_pair_code('Shop phone')")[0][0]["code"]
+    check("pair code is 8 chars", len(code) == 8 and code.isalnum())
+    denied("wrong pair code", G, "select public.sms_pair('WRONG123', 'x')", contains="invalid_code")
+    tok = ok(G, "select public.sms_pair(%s, 'Galaxy A15')", (code.lower(),))[0][0]["token"]
+    check("token issued", tok.startswith("xgsms_") and len(tok) > 40)
+    denied("pair code works once", G, "select public.sms_pair(%s, 'x')", (code,), contains="invalid_code")
+    denied("ingest needs a valid token", G, "select public.sms_ingest('xgsms_bad_token_000000000000000000000000000', 'NBE', 'x')", contains="device_revoked")
+    check("heartbeat says off", ok(G, "select public.sms_heartbeat(%s, 'v1')", (tok,))[0][0]["enabled"] is False)
+    check("bank_sms not readable", ok(c1, "select count(*) from public.bank_sms")[0][0] == 0) if False else denied("bank_sms not readable", c1, "select count(*) from public.bank_sms")
+    denied("devices not readable", c1, "select * from private.sms_devices")
+
+    a1, _ = signup("201770000001", "Auto", "One"); a2, _ = signup("201770000002", "Auto", "Two"); a3, _ = signup("201770000003", "Auto", "Three")
+    a4, _ = signup("201770000004", "Auto", "Four"); a5, _ = signup("201770000005", "Auto", "Five")
+    def mstate(uid): return ok(None, "select private.membership_state(%s)->>'status'", (uid,))[0][0]
+    # autopay off: manual path unchanged even with an SMS in
+    r = start(a1, "instapay")
+    check("autopay off -> start says manual", r["auto"] is False, str(r))
+    pr = proof(a1, r["request_id"])
+    ok(a1, "select public.submit_payment(%s, %s, %s)", (r["request_id"], pr, "111111111111"))
+    ok(G, "select public.sms_ingest(%s, 'NBE', %s, now())", (tok, NBE.format(amt="199.00", ref="111111111111")))
+    check("off: stays pending", ok(None, "select status, auto from public.membership_requests where id=%s", (r["request_id"],))[0] == ("pending", False))
+
+    ok(A, "update public.settings set data = data || '{\"autopay_enabled\": true}'")
+    check("options say autopay on", ok(G, "select public.payment_options()->>'autopay'")[0][0] == "true")
+    # InstaPay: rotation only among listener accounts; SMS first, request later -> instant approval
+    r2 = start(a2, "instapay")
+    check("autopay rotates only listener accounts", r2["account_value"] == "xgo.one@instapay" and r2["auto"] is True, str(r2))
+    for _ in range(4): ok(None, "update private.payment_counters set n = n + 1 where method='instapay'")
+    r2 = start(a2, "instapay")
+    check("still the listener account after rotation", r2["account_value"] == "xgo.one@instapay", str(r2))
+    res = ok(G, "select public.sms_ingest(%s, 'NBE', %s, now())", (tok, NBE.format(amt="199.00", ref="905416091672")))[0][0]
+    check("SMS stored, no request yet", res["stored"] and res["kind"] == "instapay" and res["matched"] is False, str(res))
+    dup = ok(G, "select public.sms_ingest(%s, 'NBE', %s, now())", (tok, NBE.format(amt="199.00", ref="905416091672")))[0][0]
+    check("duplicate SMS ignored", dup.get("duplicate") is True, str(dup))
+    pr2 = proof(a2, r2["request_id"])
+    denied("autopay InstaPay needs the reference", a2, "select public.submit_payment(%s, %s)", (r2["request_id"], pr2), contains="reference_required")
+    denied("autopay InstaPay needs the screenshot", a2, "select public.submit_payment(%s, null, '905416091672')", (r2["request_id"],), contains="proof_required")
+    denied("reference must be 12 digits", a2, "select public.submit_payment(%s, %s, '12345')", (r2["request_id"], pr2), contains="reference_required")
+    out = ok(a2, "select public.submit_payment(%s, %s, '9054 1609 1672', null, '905416091672')", (r2["request_id"], pr2))[0][0]
+    check("matched at submit -> approved instantly", out["status"] == "approved" and mstate(a2) == "active", str(out))
+    st = ok(None, "select status, auto_state, matched_sms is not null, decided_by from public.membership_requests where id=%s", (r2["request_id"],))[0]
+    check("request marked matched, system decision", st == ("approved", "matched", True, None), str(st))
+    check("SMS marked matched", ok(None, "select status from public.bank_sms where reference='905416091672'")[0][0] == "matched")
+    # the same reference can't be used again
+    r3 = start(a3, "instapay"); pr3 = proof(a3, r3["request_id"])
+    denied("reference reused", a3, "select public.submit_payment(%s, %s, '905416091672')", (r3["request_id"], pr3), contains="reference_used")
+    # request first, SMS later
+    ok(a3, "select public.submit_payment(%s, %s, '222233334444', null, '222233334444')", (r3["request_id"], pr3))
+    check("waiting for bank", ok(a3, "select public.my_membership_request()->>'auto_state'")[0][0] == "awaiting_bank")
+    low = ok(G, "select public.sms_ingest(%s, 'NBE', %s, now())", (tok, NBE.format(amt="150.00", ref="222233334444")))[0][0]
+    check("amount too low -> no match", low["matched"] is False and mstate(a3) != "active", str(low))
+    ok(None, "delete from public.bank_sms where reference='222233334444'")
+    fake = ok(G, "select public.sms_ingest(%s, '01099998888', %s, now())", (tok, NBE.format(amt="199.00", ref="222233334444")))[0][0]
+    check("SMS from a person's number not trusted", fake["matched"] is False and mstate(a3) != "active", str(fake))
+    ok(None, "delete from public.bank_sms where reference='222233334444'")
+    res = ok(G, "select public.sms_ingest(%s, 'NBE', %s, now())", (tok, NBE.format(amt="200.00", ref="222233334444")))[0][0]
+    check("SMS arrives later -> approved", res["matched"] is True and mstate(a3) == "active", str(res))
+    # OCR disagrees with the typed reference -> no auto approval (admin decides)
+    r4 = start(a4, "instapay"); pr4 = proof(a4, r4["request_id"])
+    ok(a4, "select public.submit_payment(%s, %s, '333344445555', null, '333344445556')", (r4["request_id"], pr4))
+    res = ok(G, "select public.sms_ingest(%s, 'NBE', %s, now())", (tok, NBE.format(amt="199.00", ref="333344445555")))[0][0]
+    check("OCR mismatch -> not auto approved", res["matched"] is False and mstate(a4) != "active", str(res))
+    sms4 = ok(None, "select id from public.bank_sms where reference='333344445555'")[0][0]
+    lr = {x[0]: x for x in ok(A, "select id, auto_state, candidate_sms from public.admin_list_requests('pending')")}
+    check("admin sees candidate SMS", lr[uuid.UUID(str(r4["request_id"]))][2] == sms4 if isinstance(list(lr)[0], uuid.UUID) else lr[r4["request_id"]][2] == sms4, str(lr))
+    denied("non-admin cannot match", a4, "select public.admin_match_sms(%s, %s)", (r4["request_id"], sms4))
+    ok(A, "select public.admin_match_sms(%s, %s)", (r4["request_id"], sms4))
+    check("admin match approves", mstate(a4) == "active")
+    # wallet: payer phone + amount + time window
+    r5 = start(a5, "vodafone")
+    check("wallet listener account", r5["auto"] is True and r5["account_value"] == "01001234567", str(r5))
+    denied("wallet autopay needs payer number", a5, "select public.submit_payment(%s)", (r5["request_id"],), contains="payer_phone_required")
+    ok(None, "update public.membership_requests set created_at = now() - interval '1 day' where id=%s", (r5["request_id"],))
+    ok(G, "select public.sms_ingest(%s, 'Etisalat Cash', %s, now() - interval '30 hours')", (tok, ETI.format(amt="199.00", ph="00201153090784")))
+    out = ok(a5, "select public.submit_payment(%s, null, null, '+20 115 309 0784')", (r5["request_id"],))[0][0]
+    check("old wallet SMS outside window -> not matched", out["status"] == "pending", str(out))
+    res = ok(G, "select public.sms_ingest(%s, 'Etisalat Cash', %s, now())", (tok, ETI.format(amt="199.00", ph="00201153090784")))[0][0]
+    check("wallet SMS matched by phone", res["matched"] is True and mstate(a5) == "active", str(res))
+    # stale request -> manual review after 24h, never auto-rejected
+    ok(None, "update public.membership_requests set submitted_at = now() - interval '25 hours' where id=%s", (r["request_id"],))
+    ok(None, "update public.membership_requests set auto = true, auto_state = 'awaiting_bank' where id=%s", (r["request_id"],))
+    check("24h -> manual review", ok(a1, "select public.my_membership_request()->>'auto_state'")[0][0] == "manual_review")
+    check("still pending", ok(a1, "select public.my_membership_request()->>'status'")[0][0] == "pending")
+    # the earlier SMS (sent while off) gets matched by a re-run
+    n = ok(A, "select public.admin_autopay_reconcile()")[0][0]
+    check("reconcile re-run matches old SMS", n == 1 and mstate(a1) == "active", str(n))
+    ov = ok(A, "select public.admin_autopay_overview()")[0][0]
+    check("overview", ov["enabled"] and len(ov["devices"]) == 1 and ov["devices"][0]["name"] == "Shop phone" and "NBE" in ov["senders"], str(ov))
+    # allow-list: only listed senders count
+    ok(A, "update public.settings set data = data || '{\"autopay_senders\": [\"NBE\"]}'")
+    b1, _ = signup("201770000006", "Auto", "Six"); rb = start(b1, "vodafone")
+    ok(b1, "select public.submit_payment(%s, null, null, '01055556666')", (rb["request_id"],))
+    res = ok(G, "select public.sms_ingest(%s, 'Etisalat Cash', %s, now())", (tok, ETI.format(amt="199.00", ph="01055556666")))[0][0]
+    check("sender not in allow-list -> not trusted", res["matched"] is False)
+    ok(A, "update public.settings set data = data || '{\"autopay_senders\": [\"NBE\", \"etisalat cash\"]}'")
+    check("trusting the sender + reconcile", ok(A, "select public.admin_autopay_reconcile()")[0][0] == 1 and mstate(b1) == "active")
+    ok(A, "update public.settings set data = data - 'autopay_senders'")
+    # revoke
+    dev = ov["devices"][0]["id"]
+    ok(A, "select public.admin_sms_revoke(%s)", (dev,))
+    denied("revoked device can't send", G, "select public.sms_ingest(%s, 'NBE', 'x')", (tok,), contains="device_revoked")
+    check("old wrapper still works (manual path)", ok(None, "select to_regprocedure('public.submit_membership_request(uuid,text,text)') is not null")[0][0])
+    check("schema 014", ok(G, "select public.schema_status()->>'m014'")[0][0] == "true")
+
     # ------------------------------------------------------------ performance (~20k rows)
     t = time.time()
     ok(None, """

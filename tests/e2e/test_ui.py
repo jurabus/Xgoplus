@@ -757,7 +757,7 @@ def main():
         a.locator("form:has-text('Membership sign-up') input[type=number]").nth(1).fill("2")
         a.click("form:has-text('Membership sign-up') button[type=submit]")
         a.wait_for_selector(".toast")
-        for meth, vals in (("InstaPay", ["xgo.one@instapay", "xgo.two@instapay"]), ("Vodafone Cash", ["01001234567"])):
+        for meth, vals in (("InstaPay", ["xgo.one@instapay", "xgo.two@instapay"]), ("Mobile wallet", ["01001234567"])):
             for v in vals:
                 a.locator(f".row:has(.pm-tag:text-is('{meth}')) >> text=+ Add").click()
                 a.locator(".sheet input").first.fill(v)
@@ -817,6 +817,104 @@ def main():
         expect(payer.locator(".mcard .badge")).to_have_text("Active")
         shot(payer, "65-pay-approved")
         assert sql("select source || ' ' || paid_egp from public.memberships m join public.profiles p on p.id=m.user_id where p.phone='201112223333'") == "payment 199.00"
+        # ---------------- automatic payments (SMS listener + OCR) ----------------
+        FIX = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures")
+        a.goto(SITE + "/admin.html#payments"); a.reload()
+        apc = a.locator(".card:has-text('Confirm payments automatically')")
+        apc.wait_for()
+        apc.locator(".switch input").first.check()
+        apc.locator("button:text-is('Save')").click()
+        a.wait_for_selector(".toast:has-text('Automatic payments are on')")
+        for acc in ("xgo.one@instapay", "01001234567"):
+            a.click(f".list >> text={acc}")
+            a.locator(".sheet .switch:has-text('Automatic confirmation') input").check()
+            a.click(".sheet button[type=submit]"); a.wait_for_selector(".toast")
+        assert sql("select count(*) from public.payment_accounts where auto_confirm") == "2"
+        a.click("text=+ Pair a phone")
+        a.locator(".sheet input").first.fill("Shop Galaxy")
+        a.click(".sheet button[type=submit]")
+        code = a.locator(".pair-code").inner_text().strip()
+        assert len(code) == 8, code
+        shot(a, "80-admin-pair-phone", full=False)
+        a.click(".sheet >> text=Close")
+        # the Android app pairs and forwards SMS through the same public API
+        dev = g.evaluate("""async (code) => { const m = await import('/js/common.js');
+            const r = await m.sb.rpc('sms_pair', { p_code: code, p_name: 'SM-A155F' }); return r.data?.token || JSON.stringify(r.error); }""", code)
+        assert dev.startswith("xgsms_"), dev
+        def bank_sms(sender, body):
+            return g.evaluate("""async ([tok, s, b]) => { const m = await import('/js/common.js');
+                const r = await m.sb.rpc('sms_ingest', { p_token: tok, p_sender: s, p_body: b, p_sms_at: new Date().toISOString() });
+                return r.data || { error: r.error?.message }; }""", [dev, sender, body])
+        # InstaPay customer: OCR rejects a screenshot without the reference, accepts the right one
+        p3 = phone_ctx(browser, "autopayer").new_page()
+        p3.goto(SITE + "/signup.html")
+        p3.fill("input[autocomplete=given-name]", "Mona"); p3.fill("input[autocomplete=family-name]", "Fathy")
+        p3.fill("input[type=tel]", "01112227777"); p3.fill("input[type=password]", "MonaPass123")
+        p3.click("main button[type=submit]"); p3.wait_for_url("**/membership.html")
+        p3.wait_for_selector(".pay-method"); p3.click(".pay-method.instapay")
+        expect(p3.locator(".pay-value")).to_have_text("xgo.one@instapay")
+        expect(p3.locator(".pay-guide img")).to_have_count(2)
+        for _ in range(50):
+            if p3.evaluate("[...document.querySelectorAll('.pay-guide img')].every((i) => i.complete && i.naturalWidth > 0)"): break
+            p3.wait_for_timeout(100)
+        else: raise AssertionError("guide images did not load " + str(p3.evaluate("[...document.querySelectorAll('.pay-guide img')].map((i) => [i.src, i.complete, i.naturalWidth])")))
+        shot(p3, "81-autopay-guide")
+        p3.set_input_files(".pay-form input[type=file]", os.path.join(FIX, "instapay-no-reference.png"))
+        expect(p3.locator(".ocr-note.bad")).to_contain_text("couldn’t find", timeout=60000)
+        assert p3.locator(".pay-form input[type=file]").input_value() == ""
+        shot(p3, "82-autopay-ocr-rejected", full=False)
+        p3.set_input_files(".pay-form input[type=file]", os.path.join(FIX, "instapay-with-reference.png"))
+        expect(p3.locator(".ocr-note.ok")).to_contain_text("123456789012", timeout=60000)
+        expect(p3.locator(".pay-form input.mono")).to_have_value("123456789012")
+        shot(p3, "83-autopay-ocr-ok")
+        p3.click(".pay-form button[type=submit]")
+        p3.wait_for_selector("text=Confirming your payment")
+        shot(p3, "84-autopay-waiting", full=False)
+        assert sql("select auto_state || ' ' || pay_ref || ' ' || ocr_ref from public.membership_requests where status='pending'") == "awaiting_bank 123456789012 123456789012"
+        res = bank_sms("NBE", "تم إضافة تحويل لحظي لحسابكم رقم 0110 بمبلغ 199.00 جم من منى فتحي رقم مرجعي 123456789012 يوم 24-11 الساعة 13:58 للمزيد اتصل بـ 19623")
+        assert res.get("matched") is True, res
+        p3.wait_for_selector(".qrbox canvas", timeout=30000)        # page notices by itself and opens the membership
+        expect(p3.locator(".mcard .badge")).to_have_text("Active")
+        shot(p3, "85-autopay-active", full=False)
+        # wallet customer: SMS already in, request matches instantly
+        p4 = phone_ctx(browser, "walletpayer").new_page()
+        p4.goto(SITE + "/signup.html")
+        p4.fill("input[autocomplete=given-name]", "Hany"); p4.fill("input[autocomplete=family-name]", "Saad")
+        p4.fill("input[type=tel]", "01112228888"); p4.fill("input[type=password]", "HanyPass123")
+        p4.click("main button[type=submit]"); p4.wait_for_url("**/membership.html")
+        p4.wait_for_selector(".pay-method"); p4.click(".pay-method.vodafone")
+        expect(p4.locator(".pay-value")).to_have_text("01001234567")
+        res = bank_sms("Etisalat Cash", "تم إيداع مبلغ 199.00  في حسابك بنجاح من رقم حساب 00201055554444 المسجل باسم هاني سعد استخدم etisalat money")
+        assert res.get("kind") == "wallet" and res.get("matched") is False, res
+        p4.click(".pay-form button[type=submit]")
+        expect(p4.locator(".pay-form .form-error")).to_contain_text("11-digit")
+        p4.locator(".pay-form input[type=tel]").fill("0105 555 4444")
+        shot(p4, "86-autopay-wallet-form")
+        p4.click(".pay-form button[type=submit]")
+        p4.wait_for_selector(".qrbox canvas", timeout=20000)
+        expect(p4.locator(".mcard .badge")).to_have_text("Active")
+        # a person's number can't fake a payment
+        res = bank_sms("01099998888", "تم إضافة تحويل لحظي لحسابكم رقم 0110 بمبلغ 199.00 جم من x رقم مرجعي 999999999999 يوم 24-11")
+        assert res.get("matched") is False, res
+        # admin sees it all
+        a.goto(SITE + "/admin.html#payments"); a.reload()
+        a.wait_for_selector("h2:has-text('Bank SMS received')")
+        a.click(".seg a:text-is('Approved')")
+        expect(a.locator(".list .item:has-text('Mona Fathy') .badge:text-is('auto')")).to_be_visible()
+        a.click(".seg a:text-is('Matched')")
+        expect(a.locator(".list .item:has-text('123456789012')")).to_be_visible()
+        apc = a.locator(".card:has-text('Confirm payments automatically')")
+        expect(apc).to_contain_text("Online")
+        apc.scroll_into_view_if_needed()
+        shot(a, "87-admin-autopay", full=False)
+        a.click(".list .item:has-text('123456789012')")
+        expect(a.locator(".sheet .sms-body")).to_contain_text("رقم مرجعي")
+        shot(a, "88-admin-bank-sms", full=False)
+        a.click(".sheet >> text=Close")
+        apc.locator(".switch input").first.uncheck()
+        apc.locator("button:text-is('Save')").click()
+        a.wait_for_selector(".toast:has-text('Automatic payments are off')")
+
         # mode closed -> no requests
         a.goto(SITE + "/admin.html#payments"); a.reload(); a.wait_for_selector("text=Membership sign-up")
         a.check("input[value=inactive]"); a.click("form:has-text('Membership sign-up') button[type=submit]"); a.wait_for_selector(".toast")

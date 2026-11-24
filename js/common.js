@@ -352,6 +352,13 @@ const ERRORS = {
   too_many_reports: 'You already reported this partner twice this week. We are on it.',
   providers_limit_check: 'Uses per period must be between 1 and 100.',
   providers_days_check: 'Pick at least one day.',
+  reference_required: 'Enter the 12-digit Reference number from your InstaPay receipt.',
+  reference_invalid: 'The Reference number must be 12 digits.',
+  reference_used: 'This Reference number was already used for a membership. Please check it, or contact us.',
+  payer_phone_required: 'Enter the wallet number you sent the money from.',
+  invalid_code: 'This pairing code is wrong or expired. Create a new one.',
+  device_revoked: 'This phone was disconnected. Pair it again.',
+  sms_used: 'This bank SMS was already used for another membership.',
 };
 // Admin pages show the technical reason too (helps diagnose problems from a phone).
 export const debugErrors = { on: false };

@@ -28,12 +28,13 @@ for name, (title, script, desc, noindex) in PAGES.items():
     extra = ''
     if noindex: extra += '\n  <meta name="robots" content="noindex">'
     if desc: extra += f'\n  <meta name="description" content="{desc}">'
+    csp = CSP.replace("script-src 'self'", "script-src 'self' 'wasm-unsafe-eval'") if name == 'membership' else CSP   # OCR (WebAssembly)
     html = f'''<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">{base}
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta http-equiv="Content-Security-Policy" content="{CSP}">
+  <meta http-equiv="Content-Security-Policy" content="{csp}">
   <meta name="referrer" content="strict-origin-when-cross-origin">
   <meta name="theme-color" content="#2a1670">
   <meta name="apple-mobile-web-app-capable" content="yes">

@@ -608,7 +608,8 @@ grant execute on function public.submit_membership_request(uuid, text, text) to 
 grant execute on function public.cancel_membership_request() to authenticated;
 grant execute on function public.my_membership_request() to authenticated;
 
--- Admin: requests
+-- Admin: requests (014 adds columns; drop so re-running the files in order works)
+drop function if exists public.admin_list_requests(text, int, int);
 create or replace function public.admin_list_requests(p_status text default 'pending', p_limit int default 30, p_offset int default 0)
 returns table (id uuid, created_at timestamptz, submitted_at timestamptz, decided_at timestamptz, status text, method text,
                account_value text, amount_egp numeric, proof_path text, sender_info text, admin_note text,
