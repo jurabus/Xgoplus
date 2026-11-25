@@ -59,11 +59,11 @@ function dealsRow(items) {
   return h('div', { class: 'deals' }, items.map(providerCard));
 }
 
-// Top deals (10 best, spread across categories) + up to 5 category rows of 10 — one database call.
+// Top deals (10 best, spread across categories) + a row (max 10 partners) for every category with partners — one database call.
 async function feed() {
   const area = getArea();
   sb.rpc('refresh_offers').then(() => {}, () => {});   // dated offers start/end on their own (hourly, server-side throttle)
-  const { data, error } = await sb.rpc('home_feed', { p_area: area || null, p_top: 10, p_rows: 5, p_per_row: 10 });
+  const { data, error } = await sb.rpc('home_feed', { p_area: area || null, p_top: 10, p_rows: 100, p_per_row: 10 });
   if (!error && data) return data;
   // database update 010 not installed yet: simple top deals
   const r = await selectProviders((cols, withAreas, feat) => {

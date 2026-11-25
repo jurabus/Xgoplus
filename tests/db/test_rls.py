@@ -1103,6 +1103,20 @@ def main():
     check("search returns offer_label", ok(G, "select count(*) from public.search_providers('oud', null, 20, 0, null, null) where offer_label is null")[0][0] == 1)
     check("schema 015", ok(G, "select public.schema_status()->>'m015'")[0][0] == "true")
 
+    # ------------------------------------------------------------ 016: a home row for every category with partners
+    for i in range(7):
+        cid = ok(A, "insert into public.categories (name, icon) values (%s, 'tag') returning id", (f"Row cat {i}",))[0][0]
+        pid = ok(A, "select public.admin_create_provider(%s, 'Passw0rd!', %s, 10, '')", (f"rowcat{i}", f"Row Partner {i}"))[0][0]
+        ok(None, "update public.providers set category_id=%s where id=%s", (cid, pid))
+    ok(A, "insert into public.categories (name, icon) values ('Empty cat', 'tag')")
+    ncat = ok(None, "select count(*) from public.categories c where c.is_active and exists (select 1 from public.providers p where p.is_active and p.category_id = c.id)")[0][0]
+    hf = ok(G, "select public.home_feed(null, 10, 100, 10)")[0][0]
+    check("home feed: every category with partners gets a row", len(hf["rows"]) == min(ncat, 100) and ncat > 5, f"{len(hf['rows'])} vs {ncat}")
+    check("home feed: max 10 partners per row", all(1 <= len(r["items"]) <= 10 for r in hf["rows"]))
+    check("home feed: no empty categories", all(r["items"] for r in hf["rows"]))
+    t0 = time.time(); ok(G, "select public.home_feed(null, 10, 100, 10)"); check("perf home feed all rows", time.time() - t0 < 1.5)
+    check("schema 016", ok(G, "select public.schema_status()->>'m016'")[0][0] == "true")
+
     # ------------------------------------------------------------ performance (~20k rows)
     t = time.time()
     ok(None, """
