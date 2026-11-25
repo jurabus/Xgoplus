@@ -44,6 +44,10 @@ jobs:
         run: rm -f "$RUNNER_TEMP/sms-release.jks"
       - name: Collect APK
         run: cp android/app/build/outputs/apk/release/app-release.apk xgo-sms-listener.apk
+      - name: Point the release tag at this commit
+        run: |
+          git tag -f sms-listener
+          git push -f origin refs/tags/sms-listener
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: sms-listener
