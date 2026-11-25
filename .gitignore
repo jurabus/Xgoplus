@@ -4,3 +4,6 @@ dist/
 .expo/
 *.log
 __pycache__/
+# signing keys never go in git
+*.jks
+*.keystore

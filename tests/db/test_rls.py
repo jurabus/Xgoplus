@@ -1117,6 +1117,31 @@ def main():
     t0 = time.time(); ok(G, "select public.home_feed(null, 10, 100, 10)"); check("perf home feed all rows", time.time() - t0 < 1.5)
     check("schema 016", ok(G, "select public.schema_status()->>'m016'")[0][0] == "true")
 
+    # ------------------------------------------------------------ 017: SMS privacy (OTP / debit / salary never kept)
+    for body in ("Your OTP for EGP 500.00 purchase at AMAZON is 482913. Do not share it.",
+                 "كود التحقق الخاص بعملية بمبلغ 500 جم هو 482913 لا تشاركه",
+                 "تم إيداع راتب شهر نوفمبر بمبلغ 15000 جم في حسابكم",
+                 "Your account was credited with salary EGP 15000",
+                 "تم سداد فاتورة بمبلغ 250 جم",
+                 "تم إضافة تحويل لحظي بمبلغ 199 جم رمز التحقق 123456789012"):
+        check("not a payment: " + body[:25], ok(None, "select kind from private.parse_bank_sms(%s)", (body,))[0][0] == "other")
+    check("real InstaPay credit still parsed", ok(None, "select kind from private.parse_bank_sms(%s)", (NBE.format(amt="199.00", ref="555566667777"),))[0][0] == "instapay")
+    code2 = ok(A, "select public.admin_sms_pair_code('Privacy phone')")[0][0]["code"]
+    tok2 = ok(G, "select public.sms_pair(%s, 'x')", (code2,))[0][0]["token"]
+    r = ok(G, "select public.sms_ingest(%s, 'NBE', %s, now())", (tok2, "Your OTP for EGP 500.00 purchase at AMAZON is 482913. Do not share it."))[0][0]
+    check("OTP ingested as not-a-payment", r["kind"] == "other" and r["matched"] is False, str(r))
+    body = ok(None, "select body from public.bank_sms where body like 'Your OTP%%' order by id desc limit 1")[0][0]
+    check("OTP stored masked (no digits)", "482913" not in body and not any(ch.isdigit() for ch in body), body)
+    ok(None, "insert into public.bank_sms (sender, body, body_hash, kind, status) values ('NBE', 'رمز 9988 من احمد علي', 'h-old-1', 'other', 'ignored')")
+    ok(None, "select private.mask_sms('x')")
+    ok(None, "update public.bank_sms set body = private.mask_sms(body) where kind = 'other' and body ~ '[0-9]'")
+    b2 = ok(None, "select body from public.bank_sms where body_hash='h-old-1'")[0][0]
+    check("existing rows masked incl. names", "9988" not in b2 and "احمد" not in b2, b2)
+    ok(None, "update public.bank_sms set received_at = now() - interval '200 days' where body_hash='h-old-1'")
+    ok(None, "select private.sms_retention()")
+    check("raw text dropped after 180 days", ok(None, "select body from public.bank_sms where body_hash='h-old-1'")[0][0] == "[removed after 180 days]")
+    check("schema 017", ok(G, "select public.schema_status()->>'m017'")[0][0] == "true")
+
     # ------------------------------------------------------------ performance (~20k rows)
     t = time.time()
     ok(None, """

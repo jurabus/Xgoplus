@@ -24,9 +24,24 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
+      - name: Restore the private signing key from secrets
+        env:
+          SMS_KEYSTORE_B64: ${{ secrets.SMS_KEYSTORE_B64 }}
+          SMS_KEYSTORE_PASSWORD: ${{ secrets.SMS_KEYSTORE_PASSWORD }}
+        run: |
+          if [ -z "$SMS_KEYSTORE_B64" ] || [ -z "$SMS_KEYSTORE_PASSWORD" ]; then
+            echo "::error::Add the SMS_KEYSTORE_B64 and SMS_KEYSTORE_PASSWORD repository secrets first."; exit 1
+          fi
+          echo "$SMS_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/sms-release.jks"
+          echo "SMS_KEYSTORE_PATH=$RUNNER_TEMP/sms-release.jks" >> "$GITHUB_ENV"
       - name: Build release APK
         working-directory: android
+        env:
+          SMS_KEYSTORE_PASSWORD: ${{ secrets.SMS_KEYSTORE_PASSWORD }}
         run: gradle --no-daemon :app:assembleRelease
+      - name: Remove the key from the runner
+        if: always()
+        run: rm -f "$RUNNER_TEMP/sms-release.jks"
       - name: Collect APK
         run: cp android/app/build/outputs/apk/release/app-release.apk xgo-sms-listener.apk
       - uses: softprops/action-gh-release@v2

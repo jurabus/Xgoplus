@@ -23,20 +23,26 @@ android {
         buildConfigField("String", "SUPABASE_KEY", "\"$supabaseKey\"")
     }
 
+    // The release key is private: CI writes it from the GitHub secrets SMS_KEYSTORE_B64 /
+    // SMS_KEYSTORE_PASSWORD. There is no fallback key and no default password in this repo.
+    val ksPath = System.getenv("SMS_KEYSTORE_PATH")
+    val ksPass = System.getenv("SMS_KEYSTORE_PASSWORD")
     signingConfigs {
         create("release") {
-            // Sideloaded internal tool: a fixed key so new versions install over old ones.
-            storeFile = file("../release.keystore")
-            storePassword = System.getenv("SMS_KEYSTORE_PASSWORD") ?: "xgoplus-sms"
-            keyAlias = "xgosms"
-            keyPassword = System.getenv("SMS_KEYSTORE_PASSWORD") ?: "xgoplus-sms"
+            if (ksPath != null && ksPass != null) {
+                storeFile = file(ksPath)
+                storePassword = ksPass
+                keyAlias = "xgosms"
+                keyPassword = ksPass
+            }
         }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
-            signingConfig = signingConfigs.getByName("release")
+            if (ksPath != null && ksPass != null) signingConfig = signingConfigs.getByName("release")
+            else throw GradleException("Release signing secrets are missing (SMS_KEYSTORE_PATH / SMS_KEYSTORE_PASSWORD)")
         }
     }
 
