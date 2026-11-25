@@ -3,7 +3,7 @@
 import { sb, h, clear, errMsg, busy, toast, confirmDialog, fmtDateTime, localPhone, bustSettingsCache } from '../common.js';
 import { sheet, field, input, checkbox, textarea, pagedList } from './ui.js';
 
-const LABEL = { instapay: 'InstaPay', vodafone: 'Mobile wallet' };
+const LABEL = { instapay: 'InstaPay', vodafone: 'Mobile wallet', wallet: 'XGo+ wallet' };
 const APK_URL = 'https://github.com/jurabus/xgoplus/releases/download/sms-listener/xgo-sms-listener.apk';
 let root, status = 'pending', reqList, smsStatus = 'unmatched', smsList;
 const ago = (t) => {

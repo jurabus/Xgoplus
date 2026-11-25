@@ -103,14 +103,29 @@ function promo(ctx) {
     h('a', { class: 'btn pill', href: 'membership.html', text: S('membership_cta') }));
 }
 
+// Invite & earn banner: every visitor can earn cash by spreading XGo+.
+async function earnBanner(ctx) {
+  if (!moduleOn('referrals') || ctx.role === 'provider') return null;
+  const { data: o } = await sb.rpc('referral_offer');
+  if (!o?.enabled || !(Number(o.commission) > 0)) return null;
+  const amt = Number(o.commission).toLocaleString('en-US');
+  const fill = (t) => String(t).replace(/\{amount\}/g, amt);
+  return h('a', { class: 'earn-banner', href: 'earn.html' },
+    h('div', { class: 'earn-amount' }, h('b', { text: amt }), h('span', { text: 'EGP' })),
+    h('div', { class: 'grow' }, h('b', { class: 't', text: fill(S('earn_banner_title')) }), h('p', { text: fill(S('earn_banner_text')) }),
+      h('span', { class: 'btn sm', text: S('earn_banner_cta') })));
+}
+
 async function main() {
   const ctx = await shell('home', { searchBar: false });
   clear(app);
+  const earnSlot = h('div');
   const catSlot = h('div'), bannerSlot = h('div'), dealsSlot = h('div', {}, h('div', { class: 'spinner' }));
   const wide = window.matchMedia('(min-width: 900px)').matches;
   const top = wide ? heroBanner() : hero();
-  app.append(top.el, catSlot, bannerSlot, dealsSlot, promo(ctx));
+  app.append(top.el, catSlot, earnSlot, bannerSlot, dealsSlot, promo(ctx));
   mountSearch(top.searchSlot, '', { hero: true });
+  earnBanner(ctx).then((b) => { if (b) earnSlot.append(b); }).catch(() => {});
   const [cats, deals, bans] = await Promise.all([categoryStrip(), dealSections(), banners().catch(() => null)]);
   if (cats) catSlot.append(cats);
   clear(dealsSlot).append(...deals);

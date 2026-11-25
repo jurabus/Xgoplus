@@ -73,6 +73,7 @@ Web app only (no native iOS/Android app).
 15. `migrations/015_offer_types.sql` — offer value types (percent / deal text like "Buy 2 Get 1" / special price "950 instead of 1200"), valid-from/until dates, card label for deal-only partners
 16. `migrations/016_home_all_categories.sql` — home page shows a row for every category with active partners (still max 10 per row)
 17. `migrations/017_sms_privacy.sql` — SMS data minimisation: OTP/code, debit, bill and salary SMS are never treated as payments and are stored masked only; raw bank SMS text removed after 180 days
+18. `migrations/018_referrals.sql` — Invite & earn: every member gets a referral code and a wallet; a friend who signs up with the code and buys the yearly membership credits the referrer a commission (default 50%, admin-set); wallet pays for the membership or is cashed out via InstaPay / mobile wallet (admin-set minimum, paid manually within the admin-set days)
 
 `supabase/setup_all.sql` = all of the above in one file (regenerate with `tools/gen-setup-all.sh`).
 

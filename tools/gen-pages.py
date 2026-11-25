@@ -14,6 +14,7 @@ PAGES = {  # file: (title, script, description or None, noindex)
     'about': ('About · XGo+', 'about', 'About XGo+ and how to contact us.', False),
     'login': ('Log in · XGo+', 'login', None, False),
     'signup': ('Sign up · XGo+', 'signup', None, False),
+    'earn': ('Invite & earn · XGo+', 'earn', 'Invite friends to XGo+ and earn cash for every yearly membership.', False),
     'membership': ('Membership · XGo+', 'membership', None, False),
     'account': ('Account · XGo+', 'account', None, True),
     'history': ('History · XGo+', 'history', None, True),

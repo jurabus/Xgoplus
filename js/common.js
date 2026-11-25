@@ -354,6 +354,15 @@ const ERRORS = {
   too_many_reports: 'You already reported this partner twice this week. We are on it.',
   providers_limit_check: 'Uses per period must be between 1 and 100.',
   providers_days_check: 'Pick at least one day.',
+  wallet_insufficient: 'Your wallet balance is not enough for this.',
+  withdrawal_below_minimum: 'This is below the minimum withdrawal amount.',
+  withdrawal_pending: 'You already have a withdrawal being processed.',
+  withdrawal_whole_pounds: 'Enter a whole amount in pounds.',
+  payout_phone_required: 'Enter the 11-digit number to send the money to (starts with 01).',
+  referrer_already_set: 'You already joined with a friend’s code.',
+  referrer_too_late: 'A code can only be added in your first 7 days, before your first payment.',
+  invalid_referral_code: 'This code doesn’t exist. Check it with your friend.',
+  referrals_off: 'The referral program is paused right now.',
   reference_required: 'Enter the 12-digit Reference number from your InstaPay receipt.',
   reference_invalid: 'The Reference number must be 12 digits.',
   reference_used: 'This Reference number was already used for a membership. Please check it, or contact us.',
@@ -489,6 +498,7 @@ export async function shell(active, { requireRole, searchBar } = {}) {
       h('a', { href: 'index.html', class: active === 'home' ? 'active' : '' }, active === 'home' ? icon('home') : null, S('nav_home')),
       h('a', { href: 'offers.html', class: active === 'offers' ? 'active' : '', text: S('nav_offers') }),
       categoriesDropdown(),
+      moduleOn('referrals') ? h('a', { href: 'earn.html', class: active === 'earn' ? 'active nav-earn' : 'nav-earn', text: S('nav_earn') }) : null,
       h('a', { href: 'about.html', class: active === 'about' ? 'active' : '', text: S('nav_about') }),
       h('a', { href: 'about.html#contact', text: S('nav_contact') }),
     ];
@@ -516,6 +526,7 @@ export async function shell(active, { requireRole, searchBar } = {}) {
   const foot = h('footer', { class: 'footer' },
     h('div', { class: 'foot-share' }, h('button', { class: 'share-link', type: 'button', onclick: () => shareSheet() }, icon('share'), h('span', { text: S('share_link') }))),
     S('footer_text'), ' · ', h('a', { href: 'about.html', text: S('nav_about') }),
+    moduleOn('referrals') ? [' · ', h('a', { href: 'earn.html', text: S('nav_earn') })] : null,
     S('contact_phone') ? [' · ', h('a', { href: `tel:${S('contact_phone').replace(/[^\d+]/g, '')}`, text: S('contact_phone') })] : null);
   document.body.prepend(top);
   document.body.append(foot, tab);
@@ -579,9 +590,23 @@ async function copyText(t) {
   const ta = h('textarea', { class: 'offscreen', 'aria-hidden': 'true' }); ta.value = t; document.body.append(ta); ta.select();
   let ok = false; try { ok = document.execCommand('copy'); } catch { /* */ } ta.remove(); return ok;
 }
-export function shareSheet() {
-  const url = `${location.origin}/`;
-  const text = S('share_text');
+// ---------- referral links: xgoplus.online/?ref=CODE is remembered on this device for 30 days ----------
+const REF_KEY = 'xg-ref';
+try {
+  const r = new URLSearchParams(location.search).get('ref');
+  if (r && /^[A-Za-z0-9]{4,12}$/.test(r)) localStorage.setItem(REF_KEY, JSON.stringify({ code: r.toUpperCase(), t: Date.now() }));
+} catch { /* private mode */ }
+export function storedRef() {
+  try {
+    const v = JSON.parse(localStorage.getItem(REF_KEY) || 'null');
+    return v && Date.now() - v.t < 30 * 864e5 ? v.code : '';
+  } catch { return ''; }
+}
+export function referralLink(code) { return `${location.origin}/?ref=${encodeURIComponent(code)}`; }
+
+export function shareSheet(o = {}) {
+  const url = o.url || `${location.origin}/`;
+  const text = o.text || S('share_text');
   const msg = `${text}\n${url}`;
   const e = encodeURIComponent;
   const mobile = platform() !== 'other';
@@ -603,7 +628,7 @@ export function shareSheet() {
     { k: 'copy', label: S('share_copy'), run: async () => { toast((await copyText(url)) ? S('share_copied') : url); } },
     canNative ? { k: 'more', label: S('share_more'), run: () => native() } : null,
   ].filter(Boolean);
-  const s = sheet(S('share_title'), h('div', { class: 'share-grid' }, opts.map((o) => {
+  const s = sheet(o.title || S('share_title'), h('div', { class: 'share-grid' }, opts.map((o) => {
     const ic = h('span', { class: `share-ic si-${o.k}` }, svgPath(SHARE_ICONS[o.k]));
     const attrs = { class: 'share-opt', 'data-app': o.k };
     if (o.href) return h('a', { ...attrs, href: o.href, target: o.href.startsWith('http') ? '_blank' : null, rel: 'noopener', onclick: () => setTimeout(() => s.close(), 300) }, ic, h('span', { text: o.label }));

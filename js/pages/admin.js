@@ -11,6 +11,7 @@ debugErrors.on = true;  // admin sees technical error details
 const TABS = [
   { id: 'dashboard', title: 'Dashboard' },
   { id: 'payments', title: 'Payments' },
+  { id: 'referrals', title: 'Referrals' },
   { id: 'providers', title: 'Providers' },
   { id: 'categories', title: 'Categories' },
   { id: 'areas', title: 'Areas' },

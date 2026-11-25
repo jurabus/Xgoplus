@@ -644,3 +644,42 @@ input[type=file] { max-width: 100%; font-size: 14px; }
 .dcard .off.deal { font-size: 11.5px; line-height: 1.2; max-width: 74%; white-space: normal; text-align: center; padding: 5px 9px; }
 .offpill.deal { font-size: 18px; line-height: 1.25; }
 .sug-off.deal { font-size: 11px; max-width: 40%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ---------- invite & earn ---------- */
+.seg button { flex: 1 0 auto; border: 0; background: none; padding: 9px 12px; border-radius: 10px; font-weight: 700; color: var(--muted); cursor: pointer; font: inherit; font-weight: 700; }
+.seg button.active { background: #fff; color: var(--ink); box-shadow: var(--shadow); }
+.earn-hero { background: var(--grad); color: #fff; border-radius: 22px; padding: 22px 18px; margin-bottom: 14px; text-align: center; }
+.earn-hero h1 { color: #fff; margin: 6px 0; font-size: 24px; }
+.earn-hero p { margin: 0; opacity: .92; }
+.earn-amount { display: inline-flex; align-items: baseline; gap: 6px; background: var(--accent); color: var(--ink); border-radius: 999px; padding: 6px 18px; }
+.earn-amount b { font-size: 34px; line-height: 1; }
+.earn-amount span { font-weight: 800; }
+.earn-code { margin-bottom: 14px; }
+.earn-code-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.earn-code .code { font-size: 30px; letter-spacing: 4px; color: var(--brand); }
+.code-input { text-transform: uppercase; letter-spacing: 2px; }
+.ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.btn.wa { background: #25d366; color: #fff; }
+.earn-stats { margin-bottom: 14px; }
+.stat.hl { background: var(--brand); color: #fff; }
+.stat.hl span { color: rgba(255, 255, 255, .85); }
+.earn-stats .stat b { font-size: 22px; }
+.earn-steps { list-style: none; padding: 0; margin: 14px 0; display: grid; gap: 10px; }
+.earn-steps li { display: flex; gap: 12px; align-items: center; background: #fff; border-radius: 14px; padding: 12px 14px; box-shadow: var(--shadow); }
+.earn-steps .n { flex: 0 0 30px; height: 30px; border-radius: 50%; background: var(--brand-soft); color: var(--brand); font-weight: 800; display: flex; align-items: center; justify-content: center; }
+.earn-tips { margin: 0; padding-inline-start: 18px; display: grid; gap: 6px; }
+.earn-progress { height: 10px; background: var(--brand-soft); border-radius: 999px; overflow: hidden; }
+.earn-progress > i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .6s; }
+.wd-item .linklike { width: auto; padding: 4px 0; text-align: start; }
+.plus { color: var(--ok); }
+.minus { color: var(--bad); }
+.earn-banner { display: flex; align-items: center; gap: 14px; background: var(--grad); color: #fff; border-radius: 20px; padding: 16px; margin: 14px 0; box-shadow: var(--shadow); }
+.earn-banner .earn-amount { flex: 0 0 auto; flex-direction: column; align-items: center; border-radius: 16px; padding: 8px 12px; gap: 0; }
+.earn-banner .earn-amount b { font-size: 26px; }
+.earn-banner .earn-amount span { font-size: 12px; }
+.earn-banner b.t { display: block; font-size: 17px; }
+.earn-banner p { margin: 2px 0 8px; font-size: 13px; opacity: .92; }
+.earn-banner .btn { background: #fff; color: var(--brand); }
+.signup-ref .ok { color: var(--ok); }
+.signup-ref .bad { color: var(--bad); }
+.list button.item { width: 100%; border: 0; border-bottom: 1px solid var(--line); background: #fff; text-align: start; font: inherit; color: var(--ink); cursor: pointer; }

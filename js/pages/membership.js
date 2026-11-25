@@ -53,7 +53,7 @@ async function startQR(box, bar, note) {
 }
 
 const tpl = (t, v) => String(t).replace(/\{(\w+)\}/g, (_, k) => v[k] ?? '');
-const METHOD_LABEL = () => ({ instapay: S('pay_instapay'), vodafone: S('pay_vodafone') });
+const METHOD_LABEL = () => ({ instapay: S('pay_instapay'), vodafone: S('pay_vodafone'), wallet: S('account_wallet') });
 
 // Paid flow: choose method -> see where to send -> upload screenshot -> request goes to admin.
 async function payFlow(slot, ctx, lastReq) {
@@ -61,7 +61,22 @@ async function payFlow(slot, ctx, lastReq) {
   if (lastReq?.status === 'rejected') {
     slot.append(h('div', { class: 'pay-note bad' }, h('b', { text: S('pay_rejected') }), lastReq.admin_note ? h('div', { text: lastReq.admin_note }) : null));
   }
+  if (moduleOn('referrals')) {
+    const { data: sm } = await sb.rpc('my_referral_summary');
+    if (sm?.enabled !== undefined && Number(sm.balance) >= Number(PAY.price) && Number(PAY.price) > 0) {
+      const wb = h('button', { class: 'btn block pay-wallet', type: 'button', text: tpl(S('pay_wallet_option'), { balance: Number(sm.balance).toLocaleString('en-US') }) });
+      wb.addEventListener('click', async () => {
+        busy(wb, true);
+        const { error } = await sb.rpc('pay_membership_with_wallet');
+        busy(wb, false);
+        if (error) { toast(errMsg(error), 'bad'); return; }
+        toast(S('earn_use_done')); await getContext(true); location.reload();
+      });
+      slot.append(wb);
+    }
+  }
   const methods = (PAY.methods || []).filter((m) => m === 'instapay' || m === 'vodafone');
+  if (!methods.length && slot.querySelector('.pay-wallet')) return;
   if (!methods.length) { slot.append(h('p', { class: 'small center', text: S('pay_unavailable') })); return; }
   slot.append(h('div', { class: 'small pay-step', text: S('pay_choose') }),
     h('div', { class: 'pay-methods' }, methods.map((m) => h('button', { class: `pay-method ${m}`, type: 'button', onclick: () => pick(m) },

@@ -10,6 +10,7 @@ export const MODULES = [
   { id: 'provider-profile', title: 'Provider profile editing', core: false },
   { id: 'scan-history', title: 'Customer scan history', core: false },
   { id: 'complaints', title: 'Customer reports (complaints)', core: false },
+  { id: 'referrals', title: 'Invite & earn (referral wallet + cash-outs)', core: false },
   { id: 'explore', title: 'Explore (targeted ads)', core: false, optIn: true },
 ];
 

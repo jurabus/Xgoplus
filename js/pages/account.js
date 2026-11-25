@@ -25,7 +25,17 @@ async function main() {
       toast(error ? errMsg(error) : 'Saved', error ? 'bad' : '');
     });
     const m = ctx.membership || {};
-    app.append(form,
+    const earn = moduleOn('referrals') ? h('a', { class: 'card row earn-card', href: 'earn.html' },
+      h('div', { class: 'grow' }, h('b', { text: S('account_wallet') }), h('div', { class: 'small muted', text: S('earn_banner_cta') })),
+      h('span', { class: 'badge brand', text: '→' })) : null;
+    if (earn) {
+      sb.rpc('my_referral_summary').then(({ data }) => {
+        if (!data?.code) return;
+        earn.querySelector('.small').textContent = S('account_wallet_text').replace('{balance}', Number(data.balance).toLocaleString('en-US')).replace('{code}', data.code);
+        earn.querySelector('.badge').textContent = `${Number(data.balance).toLocaleString('en-US')} EGP`;
+      }).catch(() => {});
+    }
+    app.append(form, earn,
       h('a', { class: 'card row', href: 'membership.html' },
         h('div', { class: 'grow' }, h('b', { text: S('membership_title') }),
           h('div', { class: 'small muted', text: m.expires_at ? `${S('membership_valid_until')}: ${fmtDate(m.expires_at)}` : S('membership_cta') })),

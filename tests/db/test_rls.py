@@ -103,11 +103,12 @@ def denied(name, who, sql, params=None, contains=None):
     check(name, good, f"expected error{' ~'+contains if contains else ''}, got rows={rows} err={err}")
 
 
-def signup(phone, first, last, email=None, meta_phone=None):
+def signup(phone, first, last, email=None, meta_phone=None, ref=None):
     """What Supabase Auth does on signUp (runs as the auth admin)."""
     uid = uuid.uuid4()
     email = email or f"u{phone}@xgoplus.online"
     meta = {"phone": meta_phone if meta_phone is not None else phone, "first_name": first, "last_name": last}
+    if ref is not None: meta["ref"] = ref
     _, err = run(None, """insert into auth.users (id, aud, role, email, encrypted_password, email_confirmed_at,
         raw_app_meta_data, raw_user_meta_data) values (%s,'authenticated','authenticated',%s,
         extensions.crypt('secret123', extensions.gen_salt('bf')), now(),
@@ -1141,6 +1142,106 @@ def main():
     ok(None, "select private.sms_retention()")
     check("raw text dropped after 180 days", ok(None, "select body from public.bank_sms where body_hash='h-old-1'")[0][0] == "[removed after 180 days]")
     check("schema 017", ok(G, "select public.schema_status()->>'m017'")[0][0] == "true")
+
+    # ------------------------------------------------------------ 018: referral commissions + wallet
+    ok(A, "update public.settings set data = data || '{\"payment_mode\": \"active\", \"membership_price_egp\": 199, \"autopay_enabled\": false}'")
+    ok(A, "update public.settings set data = data - 'app_disabled_modules'")
+    R1, _ = signup("201880000001", "Rana", "Referrer")
+    code = ok(R1, "select referral_code from public.profiles where id=%s", (R1,))[0][0]
+    check("every member gets a 6-char code", code and len(code) == 6 and code.isalnum() and code.isupper(), code)
+    check("existing members got codes too", ok(None, "select count(*) from public.profiles where referral_code is null")[0][0] == 0)
+    chk = ok(G, "select public.check_referral_code(%s)", (code.lower(),))[0][0]
+    check("code check shows first name only", chk == {"valid": True, "name": "Rana"}, str(chk))
+    check("unknown code invalid", ok(G, "select public.check_referral_code('ZZZZZZ')")[0][0]["valid"] is False)
+    F1, err = signup("201880000002", "Fady", "Friend", ref=f" {code.lower()} ")
+    check("signup with code links referrer", err is None and ok(None, "select referred_by from public.profiles where id=%s", (F1,))[0][0] == R1)
+    F2, err = signup("201880000003", "Farah", "Friend", ref="NOPE99")
+    check("signup with a wrong code still works (ignored)", err is None and ok(None, "select referred_by from public.profiles where id=%s", (F2,))[0][0] is None)
+    denied("members can't write code/referrer columns", F1, "update public.profiles set referral_code='HACKED', referred_by=null where id=%s", (F1,))
+    ok(F1, "update public.profiles set first_name='Fadi' where id=%s", (F1,))
+    pr = ok(None, "select first_name, referral_code <> 'HACKED', referred_by from public.profiles where id=%s", (F1,))[0]
+    check("members can't change code or referrer", pr == ("Fadi", True, R1), str(pr))
+    # late code entry
+    denied("can't refer yourself", F2, "select public.set_referrer((select referral_code from public.profiles where id=%s))", (F2,), contains="invalid_referral_code")
+    denied("no cycles", R1, "select public.set_referrer((select referral_code from public.profiles where id=%s))", (F1,), contains="invalid_referral_code")
+    check("late code within 7 days", ok(F2, "select public.set_referrer(%s)", (code,))[0][0]["name"] == "Rana")
+    denied("referrer set once", F2, "select public.set_referrer(%s)", (code,), contains="referrer_already_set")
+    F3, _ = signup("201880000004", "Fouad", "Friend")
+    ok(None, "update public.profiles set created_at = now() - interval '8 days' where id=%s", (F3,))
+    denied("too late after 7 days", F3, "select public.set_referrer(%s)", (code,), contains="referrer_too_late")
+    # commission on the referred member's paid membership (manual approval path)
+    r = start(F1, "instapay"); pr1 = proof(F1, r["request_id"])
+    ok(F1, "select public.submit_payment(%s, %s)", (r["request_id"], pr1))
+    check("no commission while pending", ok(R1, "select public.my_referral_summary()->>'balance'")[0][0] == "0")
+    ok(A, "select public.admin_decide_request(%s, true, 'ok')", (r["request_id"],))
+    sm = ok(R1, "select public.my_referral_summary()")[0][0]
+    check("referrer credited 50% of 199 = 100 (rounded)", float(sm["balance"]) == 100 and float(sm["earned"]) == 100 and sm["paid"] == 1 and sm["joined"] == 2, str({k: sm[k] for k in ("balance", "earned", "paid", "joined")}))
+    check("friends list shows initials only", sorted(f["name"] for f in sm["friends"]) == ["Fadi F.", "Farah F."], str(sm["friends"]))
+    denied("wallet table not readable", R1, "select count(*) from public.wallet_entries")
+    # commission % from settings, rejected requests earn nothing, renewals off by default
+    ok(A, "update public.settings set data = data || '{\"referral_commission_pct\": 33}'")
+    r = start(F2, "vodafone"); pr2 = proof(F2, r["request_id"])
+    ok(F2, "select public.submit_payment(%s, %s)", (r["request_id"], pr2))
+    ok(A, "select public.admin_decide_request(%s, false, 'no')", (r["request_id"],))
+    check("rejected payment earns nothing", float(ok(R1, "select public.my_referral_summary()->>'balance'")[0][0]) == 100)
+    r = start(F2, "vodafone"); pr2 = proof(F2, r["request_id"], tag="efgh")
+    ok(F2, "select public.submit_payment(%s, %s)", (r["request_id"], pr2))
+    ok(A, "select public.admin_decide_request(%s, true, 'ok')", (r["request_id"],))
+    check("commission uses admin % (33% of 199 = 66)", float(ok(R1, "select public.my_referral_summary()->>'balance'")[0][0]) == 166)
+    ok(None, "update public.memberships set expires_at = now() + interval '10 days' where user_id=%s", (F1,))
+    r = start(F1, "instapay"); pr1 = proof(F1, r["request_id"], tag="ijkl")
+    ok(F1, "select public.submit_payment(%s, %s)", (r["request_id"], pr1))
+    ok(A, "select public.admin_decide_request(%s, true, 'renewal')", (r["request_id"],))
+    check("renewal earns nothing by default", float(ok(R1, "select public.my_referral_summary()->>'balance'")[0][0]) == 166)
+    ok(A, "update public.settings set data = data || '{\"referral_commission_pct\": 50}'")
+    # pay membership from the wallet
+    denied("wallet too small", F3, "select public.pay_membership_with_wallet()", contains="wallet_insufficient")
+    ok(A, "select public.admin_wallet_adjust(%s, 50, 'Launch bonus')", (R1,))
+    denied("adjust needs a note", A, "select public.admin_wallet_adjust(%s, 5, '')", (R1,), contains="note_required")
+    denied("non-admin can't adjust", R1, "select public.admin_wallet_adjust(%s, 500, 'free money')", (R1,))
+    out = ok(R1, "select public.pay_membership_with_wallet()")[0][0]
+    check("membership paid from wallet", out["status"] == "approved" and float(out["balance"]) == 17 and out["membership"]["status"] == "active", str(out))
+    denied("no double renewal", R1, "select public.pay_membership_with_wallet()", contains="already_active")
+    # withdrawals
+    ok(A, "select public.admin_wallet_adjust(%s, 283, 'Test top-up')", (R1,))   # balance 300
+    denied("below minimum", R1, "select public.request_withdrawal(50, 'instapay', '01012345678')", contains="withdrawal_below_minimum")
+    denied("more than balance", R1, "select public.request_withdrawal(400, 'instapay', '01012345678')", contains="wallet_insufficient")
+    denied("phone required", R1, "select public.request_withdrawal(150, 'instapay', '123')", contains="payout_phone_required")
+    denied("whole pounds", R1, "select public.request_withdrawal(150.5, 'wallet', '01012345678')", contains="withdrawal_whole_pounds")
+    w = ok(R1, "select public.request_withdrawal(200, 'wallet', '+20 101 234 5678')")[0][0]
+    check("withdrawal holds the money", float(w["balance"]) == 100, str(w))
+    denied("one pending at a time", R1, "select public.request_withdrawal(100, 'wallet', '01012345678')", contains="withdrawal_pending")
+    sm = ok(R1, "select public.my_referral_summary()")[0][0]
+    wd = sm["withdrawals"][0]
+    check("member sees status + due date (3 days)", wd["status"] == "pending" and wd["phone"] == "01012345678" and wd["overdue"] is False, str(wd))
+    check("due in 3 days", ok(None, "select round(extract(epoch from due_at - created_at) / 86400) from public.withdrawal_requests where id=%s", (w["id"],))[0][0] == 3)
+    ok(R1, "select public.cancel_withdrawal(%s)", (w["id"],))
+    check("cancel refunds", float(ok(R1, "select public.my_referral_summary()->>'balance'")[0][0]) == 300)
+    w = ok(R1, "select public.request_withdrawal(250, 'instapay', '01012345678')")[0][0]
+    lw = ok(A, "select member_name, amount, status, balance, referrals_paid from public.admin_list_withdrawals('pending')")
+    check("admin queue", lw and lw[0][0] == "Rana Referrer" and float(lw[0][1]) == 250 and lw[0][4] == 2, str(lw))
+    denied("non-admin can't decide", R1, "select public.admin_decide_withdrawal(%s, true, 'x')", (w["id"],))
+    ok(A, "select public.admin_decide_withdrawal(%s, true, 'IP-998877', 'sent')", (w["id"],))
+    wd = ok(R1, "select public.my_referral_summary()->'withdrawals'->0")[0][0]
+    check("member sees paid + transfer ref", wd["status"] == "paid" and wd["transfer_ref"] == "IP-998877", str(wd))
+    denied("decided once", A, "select public.admin_decide_withdrawal(%s, false)", (w["id"],), contains="already_decided")
+    w = ok(R1, "select public.request_withdrawal(50, 'instapay', '01012345678')", ) if False else None
+    ok(A, "update public.settings set data = data || '{\"referral_min_withdrawal\": 40}'")
+    w = ok(R1, "select public.request_withdrawal(50, 'instapay', '01012345678')")[0][0]
+    ok(A, "select public.admin_decide_withdrawal(%s, false, '', 'Wrong number')", (w["id"],))
+    check("rejected -> money back", float(ok(R1, "select public.my_referral_summary()->>'balance'")[0][0]) == 50)
+    ov = ok(A, "select public.admin_referral_overview()")[0][0]
+    check("admin overview", ov["paid_referrals"] >= 2 and float(ov["paid_out"]) >= 250 and ov["top"][0]["name"] == "Rana Referrer", str({k: ov[k] for k in ("paid_referrals", "paid_out")}))
+    mw = ok(A, "select public.admin_member_wallet(%s)", (R1,))[0][0]
+    check("admin member wallet", float(mw["balance"]) == 50 and len(mw["friends"]) == 2, str(mw)[:200])
+    # program off
+    ok(A, "update public.settings set data = data || '{\"app_disabled_modules\": [\"referrals\"]}'")
+    F5, _ = signup("201880000005", "Off", "Program", ref=code)
+    check("program off: codes ignored", ok(None, "select referred_by from public.profiles where id=%s", (F5,))[0][0] is None)
+    check("program off: offer says disabled", ok(G, "select public.referral_offer()->>'enabled'")[0][0] == "false")
+    ok(A, "update public.settings set data = data - 'app_disabled_modules'")
+    check("offer: 100 EGP per friend", float(ok(G, "select public.referral_offer()->>'commission'")[0][0]) == 100)
+    check("schema 018", ok(G, "select public.schema_status()->>'m018'")[0][0] == "true")
 
     # ------------------------------------------------------------ performance (~20k rows)
     t = time.time()
