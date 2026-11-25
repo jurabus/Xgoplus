@@ -116,7 +116,7 @@ async function payFlow(slot, ctx, lastReq) {
     const ocrNote = h('div', { class: 'small ocr-note', role: 'status' });
     const ref = h('input', { class: 'input mono', inputmode: 'numeric', maxlength: 14, autocomplete: 'off', placeholder: S('pay_ref_placeholder') });
     const phone = h('input', { class: 'input', type: 'tel', inputmode: 'tel', maxlength: 16, autocomplete: 'tel', placeholder: '01XXXXXXXXX' });
-    const sender = h('input', { class: 'input', maxlength: 120, autocomplete: 'off' });
+    const sender = h('input', { class: 'input', maxlength: 60, autocomplete: 'off', autocapitalize: 'none', placeholder: 'name@instapay / 01XXXXXXXXX' });
     const err = h('div', { class: 'form-error', role: 'alert' });
     const send = h('button', { class: 'btn block light', type: 'submit', text: S('pay_submit') });
     let ocrRef = null, ocrBusy = false;
@@ -154,7 +154,11 @@ async function payFlow(slot, ctx, lastReq) {
       if (auto) fields.push(h('label', { class: 'field' }, h('span', { text: S('pay_phone_label') }), phone, h('small', { class: 'muted-on-dark', text: S('pay_phone_hint') })));
       fields.push(h('label', { class: 'field' }, h('span', { text: S(auto ? 'pay_upload_optional' : 'pay_upload_label') }), h('div', { class: 'pay-file' }, icon('share'), file), prev));
     }
-    if (!auto) fields.push(h('label', { class: 'field' }, h('span', { text: S('pay_sender_label') }), sender));
+    // manual mode: InstaPay = screenshot + sender address/phone · wallet = screenshot + wallet number
+    if (!auto) {
+      if (isInsta) fields.push(h('label', { class: 'field' }, h('span', { text: S('pay_sender_label') }), sender));
+      else fields.push(h('label', { class: 'field' }, h('span', { text: S('pay_phone_label') }), phone));
+    }
     const form = h('form', { class: 'pay-form stack', novalidate: true },
       h('div', { class: 'pay-box' },
         h('div', { class: 'small', text: tpl(S('pay_send'), { amount: Number(data.amount) }) }),
@@ -173,16 +177,25 @@ async function payFlow(slot, ctx, lastReq) {
       if (/^(20|0020)1\d{9}$/.test(phoneV)) phoneV = `0${phoneV.replace(/^(0020|20)/, '')}`;
       if ((isInsta || !auto) && !file.files[0]) { err.textContent = errMsg('proof_required'); return; }
       if (auto && isInsta && !/^\d{12}$/.test(refV)) { err.textContent = S('pay_ref_invalid'); ref.focus(); return; }
-      if (auto && !isInsta && !/^01\d{9}$/.test(phoneV)) { err.textContent = S('pay_phone_invalid'); phone.focus(); return; }
+      if (!isInsta && !/^01\d{9}$/.test(phoneV)) { err.textContent = S('pay_phone_invalid'); phone.focus(); return; }
+      let senderV = '';
+      if (!auto && isInsta) {
+        const raw = sender.value.trim().replace(/\s+/g, '');
+        let ph = digits(raw);
+        if (/^(20|0020)1\d{9}$/.test(ph)) ph = `0${ph.replace(/^(0020|20)/, '')}`;
+        if (/^01\d{9}$/.test(ph) && /^[+\d٠-٩()-]+$/.test(raw)) senderV = ph;
+        else if (/^[A-Za-z0-9._-]{2,40}@[A-Za-z0-9.-]{2,20}$/.test(raw)) senderV = raw.toLowerCase();
+        else { err.textContent = S('pay_sender_invalid'); sender.focus(); return; }
+      }
       busy(send, true, '…');
       try {
         const path = file.files[0] ? await uploadProof(ctx.profile.id, data.request_id, file.files[0]) : null;
         let { data: res, error: e2 } = await sb.rpc('submit_payment', {
           p_request: data.request_id, p_proof_path: path, p_ref: isInsta ? refV || null : null,
-          p_payer_phone: !isInsta && auto ? phoneV : null, p_ocr_ref: isInsta ? ocrRef : null, p_sender: sender.value.trim(),
+          p_payer_phone: !isInsta ? phoneV : null, p_ocr_ref: isInsta ? ocrRef : null, p_sender: senderV,
         });
         if (e2 && /submit_payment|schema cache|PGRST202/i.test(`${e2.message} ${e2.code}`)) {   // update 014 not applied yet
-          ({ data: res, error: e2 } = await sb.rpc('submit_membership_request', { p_request: data.request_id, p_proof_path: path, p_sender: sender.value.trim() }));
+          ({ data: res, error: e2 } = await sb.rpc('submit_membership_request', { p_request: data.request_id, p_proof_path: path, p_sender: senderV || phoneV }));
         }
         if (e2) throw e2;
         if (res?.status === 'approved') { toast(S('pay_auto_done')); await getContext(true); }

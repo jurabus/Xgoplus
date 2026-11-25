@@ -810,6 +810,12 @@ def main():
         shot(payer, "61-pay-choose")
         payer.click(".pay-method.vodafone")
         expect(payer.locator(".pay-value")).to_have_text("01001234567")
+        expect(payer.locator(".pay-form input.input")).to_have_count(1)     # wallet: only the number paid from (+ screenshot)
+        expect(payer.locator(".pay-form input[type=tel]")).to_have_count(1)
+        payer.locator(".pay-form input[type=tel]").fill("0111")
+        payer.set_input_files(".pay-form input[type=file]", noisy_png("/home/claude/e2e/imgs/wallet.png", 600, 1200))
+        payer.click(".pay-form button[type=submit]")
+        expect(payer.locator(".pay-form .form-error")).to_contain_text("11-digit")
         payer.click(".pay-form >> text=Change payment method")
         payer.click(".pay-method.instapay")
         expect(payer.locator(".pay-value")).to_have_text("xgo.one@instapay")
@@ -824,12 +830,17 @@ def main():
         payer.click(".pay-form button[type=submit]")
         expect(payer.locator(".pay-form .form-error")).to_contain_text("screenshot")
         payer.set_input_files(".pay-form input[type=file]", noisy_png("/home/claude/e2e/imgs/transfer.png", 1170, 2532))
+        expect(payer.locator(".pay-form input.input")).to_have_count(1)     # only the sender address/phone
         payer.fill(".pay-form input.input", "Sara A. - CIB")
+        payer.click(".pay-form button[type=submit]")
+        expect(payer.locator(".pay-form .form-error")).to_contain_text("InstaPay address")
+        payer.fill(".pay-form input.input", "Sara.Adel@instapay")
         shot(payer, "62-pay-form")
         payer.click(".pay-form button[type=submit]")
         payer.wait_for_selector("text=Request under review")
         shot(payer, "63-pay-pending")
         assert sql("select status || ' ' || method from public.membership_requests where status='pending'") == "pending instapay"
+        assert sql("select sender_info from public.membership_requests where status='pending'") == "sara.adel@instapay"
         # screenshot is private: no public URL, and another customer can't get a signed link
         pth = sql("select proof_path from public.membership_requests where status='pending'")
         r = c.evaluate(f"""async () => {{ const m = await import('/js/common.js');
@@ -982,8 +993,9 @@ def main():
         expect(rf.locator(".pay-guide")).to_have_count(0)        # autopay off again -> plain screenshot flow
         expect(rf.locator(".pay-form input.mono")).to_have_count(0)
         rf.set_input_files(".pay-form input[type=file]", noisy_png("/home/claude/e2e/imgs/transfer2.png", 1170, 2532))
-        rf.fill(".pay-form input.input", "Karim F.")
+        rf.fill(".pay-form input.input", "+20 111 222 6666")
         rf.click(".pay-form button[type=submit]"); rf.wait_for_selector("text=Request under review")
+        assert sql("select sender_info from public.membership_requests where status='pending'") == "01112226666"
         a.goto(SITE + "/admin.html#payments"); a.reload()
         a.click(".list .item:has-text('Karim Fathy')")
         a.click(".sheet >> text=Approve & activate"); a.wait_for_selector(".toast")

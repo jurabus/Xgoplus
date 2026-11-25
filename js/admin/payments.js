@@ -131,7 +131,7 @@ async function requestSheet(r) {
       h('div', { class: 'row' }, h('b', { class: 'grow', text: r.member_name }), h('span', { class: `pm-tag ${r.method}`, text: LABEL[r.method] })),
       h('div', { class: 'small' }, 'Phone: ', h('a', { href: `tel:+${r.member_phone}`, text: localPhone(r.member_phone) }), ` · membership now: ${r.member_status}`),
       h('div', { class: 'small' }, `Amount: ${Number(r.amount_egp)} EGP · sent to: `, h('b', { text: r.account_value })),
-      r.sender_info ? h('div', { class: 'small', text: `Sender: ${r.sender_info}` }) : null,
+      r.sender_info ? h('div', { class: 'small', text: `Sent from: ${r.sender_info}` }) : null,
       r.pay_ref ? h('div', { class: 'small' }, 'Reference typed: ', h('b', { class: 'mono', text: r.pay_ref }),
         r.ocr_ref && r.ocr_ref !== r.pay_ref ? h('span', { class: 'badge bad', text: ` screenshot says ${r.ocr_ref}` }) : r.ocr_ref ? ' (matches screenshot ✓)' : ' (not read from screenshot)') : null,
       r.payer_phone ? h('div', { class: 'small' }, 'Paid from wallet: ', h('b', { class: 'mono', text: r.payer_phone })) : null,
