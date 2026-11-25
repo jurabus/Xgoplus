@@ -98,7 +98,7 @@ function accountSheet(a, method, nextSort) {
   });
 }
 
-async function accountsCard(ov) {
+async function accountsCard(ov, autoOn = false) {
   const { data, error } = await sb.from('payment_accounts').select('*').order('sort_order').order('created_at').limit(200);
   const card = h('div', { class: 'card stack' }, h('b', { text: 'Where customers send money' }),
     h('p', { class: 'small muted', text: `Customers see one account at a time. After every ${ov?.rotate_every ?? 5} submitted requests the next active account in the list is used, so no single account hits its daily/monthly limit.` }));
@@ -112,7 +112,7 @@ async function accountsCard(ov) {
       h('div', { class: 'grow' }, h('div', { class: 'ellipsis' }, h('b', { text: r.value })),
         h('div', { class: 'small muted', text: `${r.uses_count} requests${r.label ? ` · ${r.label}` : ''}${m === 'instapay' ? (r.pay_link ? ' · app link ✓' : ' · no app link') : ''}` })),
       r.id === cur ? h('span', { class: 'badge brand', text: 'Showing now' }) : null,
-      r.auto_confirm ? h('span', { class: 'badge ok', text: 'Auto' }) : null,
+      r.auto_confirm && autoOn ? h('span', { class: 'badge ok', text: 'Auto' }) : null,
       h('span', { class: `badge ${r.is_active ? 'ok' : 'bad'}`, text: r.is_active ? 'On' : 'Off' }))));
     card.append(h('div', { class: 'row' }, h('span', { class: `pm-tag ${m}`, text: LABEL[m] }), h('div', { class: 'grow' }),
       h('button', { class: 'btn sm', type: 'button', text: '+ Add', onclick: () => accountSheet(null, m, (rows.at(-1)?.sort_order || 0) + 10) })), list);
@@ -183,9 +183,11 @@ async function draw() {
     h('a', { href: '#payments', class: v === status ? 'active' : '', text: v === 'pending' && ov?.pending ? `${l} (${ov.pending})` : l, onclick: (e) => { e.preventDefault(); status = v; drawSeg(); reqList.reset(); } })));
   drawSeg();
   const reqBox = h('div');
+  const { data: setRow } = await sb.from('settings').select('data').eq('id', 1).single();
+  const autoOn = setRow?.data?.autopay_enabled === true;
   root.append(h('h2', { text: 'Requests' }), seg, reqBox, h('h2', { text: 'Automatic payments' }), await autopayCard(),
-    h('h2', { text: 'Settings' }), el, await accountsCard(ov));
-  drawSmsLog();
+    h('h2', { text: 'Settings' }), el, await accountsCard(ov, autoOn));
+  if (autoOn) drawSmsLog(); else smsList = null;
   reqList = pagedList(reqBox, async (offset, limit) => {
     const { data, error } = await sb.rpc('admin_list_requests', { p_status: status, p_limit: limit, p_offset: offset });
     if (error) { toast(errMsg(error), 'bad'); return { rows: [], total: 0 }; }
@@ -265,6 +267,28 @@ async function autopayCard() {
       h('div', { class: 'grow' }, h('div', { class: 'ellipsis' }, h('b', { text: x.name || 'Phone' })),
         h('div', { class: 'small muted', text: x.paired ? `Last check-in ${ago(x.last_seen_at)} · ${x.sms_count} SMS${x.last_info ? ` · ${x.last_info}` : ''}` : `Waiting for code until ${fmtDateTime(x.pair_expires_at)}` })),
       h('span', { class: `badge ${x.paired ? (fresh ? 'ok' : 'bad') : 'warn'}`, text: x.paired ? (fresh ? 'Online' : 'Offline') : 'Pairing' }), rev));
+  }
+  if (!ov.enabled) {
+    const turnOn = h('button', { class: 'btn block', type: 'button', text: 'Switch automatic payments on' });
+    turnOn.addEventListener('click', async () => {
+      if (!online && !(await confirmDialog('No listener phone is online yet. Payments will wait for its SMS (or go to your manual check after 24 h). Switch on anyway?', 'Switch on'))) return;
+      busy(turnOn, true);
+      const { error: e1 } = await sb.from('settings').update({ data: { ...d, autopay_enabled: true }, updated_at: new Date().toISOString() }).eq('id', 1);
+      if (!e1) await sb.rpc('admin_autopay_reconcile');
+      busy(turnOn, false);
+      if (e1) { toast(errMsg(e1), 'bad'); return; }
+      bustSettingsCache(); toast('Automatic payments are on'); draw();
+    });
+    card.append(
+      h('div', { class: 'row' }, h('b', { class: 'grow', text: 'Off — manual approval' }), h('span', { class: 'badge', text: 'off' })),
+      h('p', { class: 'small muted', text: 'Members send the money, upload the transfer screenshot and wait up to 24 h while you approve it here. No reference/phone fields, guides or “instant” texts are shown to them.' }),
+      h('ol', { class: 'small steps' },
+        h('li', {}, 'Install the ', h('a', { href: APK_URL, text: 'Android listener app (APK)' }), ' on the phone that receives the InstaPay / wallet SMS.'),
+        h('li', { text: 'Pair it below and check it shows “Online”.' }),
+        h('li', { text: 'Switch automatic payments on (here or in Admin → Modules).' })),
+      h('div', { class: 'row' }, h('b', { class: 'grow', text: 'Listener phones' }), h('button', { class: 'btn sm', type: 'button', text: '+ Pair a phone', onclick: pairSheet })),
+      devList, turnOn);
+    return card;
   }
   card.append(
     h('label', { class: 'switch' }, h('span', {}, h('b', { text: 'Confirm payments automatically' }), h('br'),

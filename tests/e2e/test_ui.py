@@ -852,12 +852,19 @@ def main():
         assert sql("select source || ' ' || paid_egp from public.memberships m join public.profiles p on p.id=m.user_id where p.phone='201112223333'") == "payment 199.00"
         # ---------------- automatic payments (SMS listener + OCR) ----------------
         FIX = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures")
+        # off by default: Payments shows only install/pair steps, no SMS log
         a.goto(SITE + "/admin.html#payments"); a.reload()
-        apc = a.locator(".card:has-text('Confirm payments automatically')")
-        apc.wait_for()
-        apc.locator(".switch input").first.check()
-        apc.locator("button:text-is('Save')").click()
-        a.wait_for_selector(".toast:has-text('Automatic payments are on')")
+        a.wait_for_selector("text=Off — manual approval")
+        expect(a.locator("h2:has-text('Bank SMS received')")).to_have_count(0)
+        shot(a, "79-admin-autopay-off", full=False)
+        # switched on from Admin → Modules
+        a.goto(SITE + "/admin.html#modules"); a.reload()
+        mod = a.locator(".switch:has-text('Automatic payments (Android SMS listener)') input")
+        expect(mod).not_to_be_checked()
+        mod.check(); a.click("button:text-is('Save')"); a.wait_for_selector(".toast:has-text('Saved')")
+        assert sql("select data->>'autopay_enabled' from public.settings where id=1") == "true"
+        a.goto(SITE + "/admin.html#payments"); a.reload()
+        a.locator(".card:has-text('Confirm payments automatically')").wait_for()
         for acc in ("xgo.one@instapay", "01001234567"):
             a.click(f".list >> text={acc}")
             a.locator(".sheet .switch:has-text('Automatic confirmation') input").check()
@@ -971,6 +978,9 @@ def main():
         assert sql("select r.phone from public.profiles k join public.profiles r on r.id=k.referred_by where k.phone='201112226666'") == "201112223333"
         rf.wait_for_selector(".pay-method")
         rf.click(".pay-method.instapay")
+        expect(rf.locator(".pay-form")).to_be_visible()
+        expect(rf.locator(".pay-guide")).to_have_count(0)        # autopay off again -> plain screenshot flow
+        expect(rf.locator(".pay-form input.mono")).to_have_count(0)
         rf.set_input_files(".pay-form input[type=file]", noisy_png("/home/claude/e2e/imgs/transfer2.png", 1170, 2532))
         rf.fill(".pay-form input.input", "Karim F.")
         rf.click(".pay-form button[type=submit]"); rf.wait_for_selector("text=Request under review")
