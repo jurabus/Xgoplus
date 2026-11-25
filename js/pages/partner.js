@@ -158,7 +158,7 @@ export async function verify(token) {
         ? [h('div', { text: S('scan_discount_label') }), h('div', { class: 'big', text: `${pct(data.discount_percent)}%` })]
         : h('div', { class: 'big-sub', text: S('scan_no_standard') }),
       data.discount_kind === 'first' ? h('div', { class: 'badge hot', text: S('scan_offer_first') }) : null,
-      data.discount_kind === 'time' ? h('div', { class: 'badge hot', text: `${data.time_title || S('scan_offer_time')} · ${fmtTime(data.time_from)} – ${fmtTime(data.time_to)}` }) : null,
+      data.discount_kind === 'time' ? h('div', { class: 'badge hot', text: `${data.time_title || S('scan_offer_time')} · ${fmtTime(data.time_from)} to ${fmtTime(data.time_to)}` }) : null,
       data.extras?.length ? h('div', { class: 'scan-svc' }, h('b', { text: S('scan_offers_now') }),
         h('ul', {}, data.extras.map((x) => h('li', {},
           h('span', { text: x.title || (x.kind === 'first' ? S('scan_offer_first') : S('scan_offer_time')) }), svcValue(x))))) : null,

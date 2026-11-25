@@ -733,10 +733,11 @@ export function offerLive(r) {
 export function fmtTime(t) {
   const [hh, mm] = String(t || '').split(':').map(Number);
   if (Number.isNaN(hh)) return '';
-  return new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(new Date(2000, 0, 1, hh, mm || 0));
+  // always 12-hour: 1:00 pm (not the phone's 13:00)
+  return `${((hh + 11) % 12) + 1}:${String(mm || 0).padStart(2, '0')} ${hh < 12 ? 'am' : 'pm'}`;
 }
 export function offerWhen(r) {
-  const parts = [`${fmtTime(r.start_time)} – ${fmtTime(r.end_time)}`];
+  const parts = [`${fmtTime(r.start_time)} to ${fmtTime(r.end_time)}`];
   if (r.days?.length && r.days.length < 7) { const n = dayNames(true); parts.push(r.days.map((d) => n[d]).join(', ')); }
   return parts.join(' · ');
 }
