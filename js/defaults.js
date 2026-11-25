@@ -234,6 +234,11 @@ export default {
   "pay_auto_note": "Your membership turns on automatically as soon as we receive your transfer — usually within minutes.",
   "pay_auto_done": "Payment confirmed — your membership is active!",
   "pay_waiting_title": "Confirming your payment…",
-  "pay_waiting_text": "We’re matching your transfer with the bank. This usually takes a few minutes — you can stay on this page or come back later."
+  "pay_waiting_text": "We’re matching your transfer with the bank. This usually takes a few minutes — you can stay on this page or come back later.",
+  "egp": "EGP",
+  "offer_instead_of": "instead of {old} EGP",
+  "offer_until": "Until {date}",
+  "scan_offers_now": "Offers that apply now",
+  "offer_label_offers": "Offers"
 }
 ;

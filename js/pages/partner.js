@@ -53,6 +53,13 @@ function cameraHelp(err) {
 }
 
 // Prefer the browser's native QR reader (Android Chrome) — fast and robust; fall back to jsQR (iPhone, others).
+// one offer's value on the scan screen: 20% · Buy 2 Get 1 · 950 EGP (was 1,200)
+function svcValue(x) {
+  if (x.value_type === 'deal') return h('b', { text: x.deal_text });
+  if (x.value_type === 'price') return h('b', {}, `${Number(x.price_new).toLocaleString('en-US')} ${S('egp')} `, h('s', { class: 'old', text: Number(x.price_old).toLocaleString('en-US') }));
+  return h('b', { text: `${pct(x.percent)}%` });
+}
+
 async function makeDecoder() {
   try {
     if ('BarcodeDetector' in window) {
@@ -147,13 +154,16 @@ export async function verify(token) {
   const usage = data.usage ? usageText(data.usage) : '';
   if (data.status === 'active') {
     box = h('div', { class: 'result ok' }, icon('check', 'icon'), h('h2', { text: S('scan_active') }),
-      Number(data.discount_percent) > 0 || !data.services?.length
+      Number(data.discount_percent) > 0 || !(data.services?.length || data.extras?.length)
         ? [h('div', { text: S('scan_discount_label') }), h('div', { class: 'big', text: `${pct(data.discount_percent)}%` })]
         : h('div', { class: 'big-sub', text: S('scan_no_standard') }),
       data.discount_kind === 'first' ? h('div', { class: 'badge hot', text: S('scan_offer_first') }) : null,
       data.discount_kind === 'time' ? h('div', { class: 'badge hot', text: `${data.time_title || S('scan_offer_time')} · ${fmtTime(data.time_from)} – ${fmtTime(data.time_to)}` }) : null,
+      data.extras?.length ? h('div', { class: 'scan-svc' }, h('b', { text: S('scan_offers_now') }),
+        h('ul', {}, data.extras.map((x) => h('li', {},
+          h('span', { text: x.title || (x.kind === 'first' ? S('scan_offer_first') : S('scan_offer_time')) }), svcValue(x))))) : null,
       data.services?.length ? h('div', { class: 'scan-svc' }, h('b', { text: S('scan_services') }),
-        h('ul', {}, data.services.map((x) => h('li', {}, h('span', { text: x.title }), h('b', { text: `${pct(x.percent)}%` }))))) : null,
+        h('ul', {}, data.services.map((x) => h('li', {}, h('span', { text: x.title }), svcValue(x))))) : null,
       h('div', {}, h('b', { text: data.member_name })),
       data.trial ? h('div', { class: 'badge brand', text: S('scan_trial') }) : null,
       data.repeat ? h('div', { class: 'badge warn', text: S('scan_repeat') }) : null,

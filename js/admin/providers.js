@@ -1,4 +1,4 @@
-import { sb, h, clear, errMsg, busy, toast, confirmDialog, mediaUrl, uploadImage, pct, initialOf, limitsEditor, dayNames, offerWhen } from '../common.js';
+import { sb, h, clear, errMsg, busy, toast, confirmDialog, mediaUrl, uploadImage, pct, initialOf, limitsEditor, dayNames, offerWhen, offerValueEl, offerLive, fmtDay } from '../common.js';
 import { sheet, field, input, textarea, checkbox, pagedList } from './ui.js';
 
 let list, q = '', cats = [], areas = [];
@@ -141,22 +141,24 @@ function offersSection(p) {
   const addBtn = h('button', { class: 'btn sm', type: 'button', text: '+ Add offer' });
   const box = h('div', { class: 'card stack' },
     h('div', { class: 'row' }, h('b', { class: 'grow', text: 'Discount offers' }), addBtn),
-    h('p', { class: 'small muted', text: 'Extra discounts on top of the standard one: a time window (e.g. 12:00–15:00 50%), a first-visit discount, or a % per service. The scan picks the best time/first-visit discount automatically and lists the services.' }),
+    h('p', { class: 'small muted', text: 'Extra offers on top of the standard discount: a time window (e.g. 12:00–15:00 50%), a first-visit offer, or one per service. Each can be a %, a deal (“Buy 2 Get 1”) or a special price (950 instead of 1200), with optional start/end dates. The scan applies the best time/first-visit % automatically and lists everything else for the cashier.' }),
     listEl);
   async function load() {
-    const { data, error } = await sb.from('discount_rules').select('id,kind,title,percent,start_time,end_time,days,sort_order,is_active')
-      .eq('provider_id', p.id).order('kind').order('sort_order').order('percent', { ascending: false }).limit(100);
+    const { data, error } = await sb.from('discount_rules').select('id,kind,title,percent,start_time,end_time,days,sort_order,is_active,value_type,deal_text,price_new,price_old,starts_on,ends_on')
+      .eq('provider_id', p.id).order('kind').order('sort_order').order('percent', { ascending: false, nullsFirst: false }).limit(100);
     clear(listEl);
-    if (error) { listEl.append(h('p', { class: 'form-error', text: `Offers unavailable — run update 012. (${errMsg(error)})` })); addBtn.disabled = true; return; }
+    if (error) { listEl.append(h('p', { class: 'form-error', text: `Offers unavailable — run updates 012 and 015. (${errMsg(error)})` })); addBtn.disabled = true; return; }
     if (!data.length) listEl.append(h('p', { class: 'small muted', text: 'No offers — only the standard discount applies.' }));
     for (const r of data) {
-      const sub = r.kind === 'time' ? offerWhen(r) : r.kind === 'first' ? 'On the member\'s first visit' : 'Shown at checkout';
+      const dates = [r.starts_on ? `from ${fmtDay(r.starts_on)}` : '', r.ends_on ? `until ${fmtDay(r.ends_on)}` : ''].filter(Boolean).join(' ');
+      const sub = [r.kind === 'time' ? offerWhen(r) : r.kind === 'first' ? 'On the member\'s first visit' : 'Shown at checkout', dates].filter(Boolean).join(' · ');
+      const live = offerLive(r);
       listEl.append(h('button', { class: 'item btn-reset offer-item', type: 'button', onclick: () => offerSheet(p, r, load) },
-        h('span', { class: 'offer-pct', text: `${pct(r.percent)}%` }),
+        offerValueEl(r),
         h('div', { class: 'grow' },
           h('div', { class: 'ellipsis' }, h('b', { text: `${OFFER_KINDS[r.kind]}${r.title ? ` · ${r.title}` : ''}` })),
           h('div', { class: 'small muted ellipsis', text: sub })),
-        h('span', { class: `badge ${r.is_active ? 'ok' : 'bad'}`, text: r.is_active ? 'On' : 'Off' })));
+        h('span', { class: `badge ${live ? 'ok' : r.is_active ? 'warn' : 'bad'}`, text: live ? 'On' : r.is_active ? (r.ends_on && r.ends_on < new Date().toISOString().slice(0, 10) ? 'Ended' : 'Later') : 'Off' })));
     }
   }
   addBtn.addEventListener('click', () => offerSheet(p, null, load));
@@ -168,7 +170,18 @@ function offerSheet(p, r, reload) {
   const kind = h('select', { class: 'input' }, Object.entries(OFFER_KINDS).map(([v, t]) => h('option', { value: v, text: t })));
   kind.value = r?.kind || 'time';
   const title = input({ maxlength: 80, value: r?.title || '' });
-  const percent = input({ type: 'number', min: 0.01, max: 100, step: 0.01, value: r ? pct(r.percent) : '' });
+  const VT = { percent: 'Percentage (20%)', deal: 'Deal text (Buy 2 Get 1)', price: 'Special price (950 instead of 1200)' };
+  const vtype = h('select', { class: 'input' }, Object.entries(VT).map(([v, t]) => h('option', { value: v, text: t })));
+  vtype.value = r?.value_type || 'percent';
+  const percent = input({ type: 'number', min: 0.01, max: 100, step: 0.01, value: r?.percent != null ? pct(r.percent) : '' });
+  const deal = input({ maxlength: 60, value: r?.deal_text || '', placeholder: 'e.g. Buy 2 Get 1' });
+  const priceNew = input({ type: 'number', min: 0.01, step: 0.01, value: r?.price_new ?? '', placeholder: '950' });
+  const priceOld = input({ type: 'number', min: 0.01, step: 0.01, value: r?.price_old ?? '', placeholder: '1200' });
+  const startsOn = input({ type: 'date', value: r?.starts_on || '' });
+  const endsOn = input({ type: 'date', value: r?.ends_on || '' });
+  const pctField = field('Discount %', percent);
+  const dealField = field('Deal (shown as written)', deal);
+  const priceBox = h('div', { class: 'row' }, h('div', { class: 'grow' }, field('Offer price (EGP)', priceNew)), h('div', { class: 'grow' }, field('Instead of (EGP)', priceOld)));
   const from = input({ type: 'time', value: (r?.start_time || '12:00').slice(0, 5) });
   const to = input({ type: 'time', value: (r?.end_time || '15:00').slice(0, 5) });
   const names = dayNames(true);
@@ -185,11 +198,14 @@ function offerSheet(p, r, reload) {
   const del = r ? h('button', { class: 'btn block danger', type: 'button', text: 'Delete offer' }) : null;
   const sync = () => {
     timeBox.hidden = kind.value !== 'time';
+    pctField.hidden = vtype.value !== 'percent'; dealField.hidden = vtype.value !== 'deal'; priceBox.hidden = vtype.value !== 'price';
     titleField.querySelector('span').textContent = kind.value === 'service' ? 'Service name (required)' : 'Label (optional, e.g. Lunch hours)';
     title.placeholder = kind.value === 'service' ? 'e.g. Initial assessment' : '';
   };
-  kind.addEventListener('change', sync); sync();
-  const form = h('form', { class: 'stack' }, field('Type', kind), titleField, field('Discount %', percent), timeBox,
+  kind.addEventListener('change', sync); vtype.addEventListener('change', sync); sync();
+  const form = h('form', { class: 'stack' }, field('Type', kind), titleField, field('Discount', vtype), pctField, dealField, priceBox, timeBox,
+    h('div', { class: 'row' }, h('div', { class: 'grow' }, field('Valid from (optional)', startsOn)), h('div', { class: 'grow' }, field('Valid until (optional)', endsOn))),
+    h('small', { class: 'muted', text: 'Egypt dates, inclusive. Outside them the offer is hidden and not applied.' }),
     field('Sort order', sort), h('label', { class: 'switch' }, h('span', { text: 'Active' }), active), err, save, del);
   const s = sheet(r ? 'Edit offer' : `New offer · ${p.name}`, form);
   form.addEventListener('submit', async (e) => {
@@ -197,12 +213,19 @@ function offerSheet(p, r, reload) {
     const k = kind.value;
     const days = dayBoxes.map((l) => l.querySelector('input')).filter((c) => c.checked).map((c) => Number(c.dataset.day));
     const v = Number(percent.value);
+    const vt = vtype.value;
+    const pn = Number(priceNew.value), po = Number(priceOld.value);
     if (k === 'service' && !title.value.trim()) { err.textContent = 'Enter the service name.'; return; }
-    if (!(v > 0 && v <= 100)) { err.textContent = 'Enter a discount between 0.01 and 100.'; return; }
+    if (vt === 'percent' && !(v > 0 && v <= 100)) { err.textContent = 'Enter a discount between 0.01 and 100.'; return; }
+    if (vt === 'deal' && !deal.value.trim()) { err.textContent = 'Write the deal, e.g. Buy 2 Get 1.'; return; }
+    if (vt === 'price' && !(pn > 0 && po > pn)) { err.textContent = 'The offer price must be lower than the usual price.'; return; }
+    if (startsOn.value && endsOn.value && endsOn.value < startsOn.value) { err.textContent = '“Valid until” must be after “Valid from”.'; return; }
     if (k === 'time' && (!from.value || !to.value || from.value === to.value)) { err.textContent = 'Pick two different times.'; return; }
     if (k === 'time' && !days.length) { err.textContent = 'Pick at least one day.'; return; }
     const row = {
-      kind: k, title: title.value.trim(), percent: v, sort_order: Math.trunc(Number(sort.value) || 0), is_active: active.checked,
+      kind: k, title: title.value.trim(), value_type: vt, percent: vt === 'percent' ? v : null,
+      deal_text: vt === 'deal' ? deal.value.trim() : '', price_new: vt === 'price' ? pn : null, price_old: vt === 'price' ? po : null,
+      starts_on: startsOn.value || null, ends_on: endsOn.value || null, sort_order: Math.trunc(Number(sort.value) || 0), is_active: active.checked,
       start_time: k === 'time' ? from.value : null, end_time: k === 'time' ? to.value : null,
       days: k === 'time' && days.length < 7 ? days : null,
     };

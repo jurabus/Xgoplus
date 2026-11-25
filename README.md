@@ -70,6 +70,7 @@ Web app only (no native iOS/Android app).
 12. `migrations/012_offers.sql` — multiple discounts per partner: time windows (Egypt time, optional weekdays), first-visit discount, per-service discounts (admin-only); `providers.max_percent` for "Up to X%", scan picks the best applicable discount and lists services
 13. `migrations/013_interests_explore.sql` — member interests from scans (admin reports), Explore tab with category-targeted ads (opt-in module), view/click stats
 14. `migrations/014_autopay.sql` — automatic payment confirmation: paired Android SMS listener (`android/`, APK built by GitHub Actions to the `sms-listener` release), SMS parsing in the database, InstaPay reference / wallet number matching, 24 h manual-review escalation, admin switch
+15. `migrations/015_offer_types.sql` — offer value types (percent / deal text like "Buy 2 Get 1" / special price "950 instead of 1200"), valid-from/until dates, card label for deal-only partners
 
 `supabase/setup_all.sql` = all of the above in one file (regenerate with `tools/gen-setup-all.sh`).
 

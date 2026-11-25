@@ -306,13 +306,15 @@ export async function uploadProof(userId, requestId, file) {
 
 // Partner lists with their area name. If the areas update (007) isn't in the database yet,
 // fall back to the plain columns instead of showing nothing.
-const dbFeat = { areas: true, max: true };   // features of updates 007 / 012 (switched off if missing)
+const dbFeat = { areas: true, max: true, label: true };   // features of updates 007 / 012 / 015 (switched off if missing)
 export async function selectProviders(build) {
-  for (let i = 0; i < 3; i++) {
-    const cols = ['id,name,image_path,discount_percent', dbFeat.max ? 'max_percent' : null, dbFeat.areas ? 'area:areas(name)' : null].filter(Boolean).join(',');
+  for (let i = 0; i < 4; i++) {
+    const cols = ['id,name,image_path,discount_percent', dbFeat.max ? 'max_percent' : null, dbFeat.label ? 'offer_label' : null,
+      dbFeat.areas ? 'area:areas(name)' : null].filter(Boolean).join(',');
     const r = await build(cols, dbFeat.areas, dbFeat);
     if (!r.error) return r;
     const m = r.error.message || '';
+    if (dbFeat.label && /offer_label/i.test(m)) { dbFeat.label = false; continue; }
     if (dbFeat.max && /max_percent/i.test(m)) { dbFeat.max = false; console.warn('Offers not in the database yet — run supabase/migrations/012_offers.sql'); continue; }
     if (dbFeat.areas && /areas|relationship|schema cache|area_id/i.test(m)) { dbFeat.areas = false; console.warn('Areas not available in the database yet — run supabase/migrations/007_areas.sql'); continue; }
     return r;
@@ -700,9 +702,33 @@ export const PROVIDER_COLS = 'id,name,image_path,discount_percent,max_percent,ar
 // ---------- discounts: standard + offers (time / first visit / services) ----------
 export function bestPct(p) { return Math.max(Number(p.max_percent) || 0, Number(p.discount_percent) || 0); }
 export function offBadge(p, cls) {
-  const more = bestPct(p) > (Number(p.discount_percent) || 0);
+  const best = bestPct(p);
+  if (!best && p.offer_label) return h('span', { class: `${cls} deal`, text: p.offer_label });   // e.g. "Buy 2 Get 1"
+  const more = best > (Number(p.discount_percent) || 0);
   return h('span', { class: cls }, more ? h('small', { class: 'upto', text: S('up_to') }) : null,
-    `${pct(bestPct(p))}%`, h('small', { text: S('off_suffix').replace('%', '').trim() }));
+    `${pct(best)}%`, h('small', { text: S('off_suffix').replace('%', '').trim() }));
+}
+const money = (v) => Number(v).toLocaleString('en-US', { maximumFractionDigits: 2 });
+export function fmtDay(d) {
+  if (!d) return '';
+  const [y, m, dd] = String(d).split('-').map(Number);
+  return new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short' }).format(new Date(y, m - 1, dd));
+}
+/** Value of one offer for display: { big, small?, sub? } — 20% · "Buy 2 Get 1" · 950 EGP (instead of 1,200) */
+export function offerValue(r) {
+  if (r.value_type === 'deal') return { big: r.deal_text, deal: true };
+  if (r.value_type === 'price') return { big: money(r.price_new), small: S('egp'), sub: S('offer_instead_of').replace('{old}', money(r.price_old)) };
+  return { big: `${pct(r.percent)}%` };
+}
+export function offerValueEl(r, cls = 'offer-pct') {
+  const v = offerValue(r);
+  return h('span', { class: `${cls}${v.deal ? ' deal' : ''}${r.value_type === 'price' ? ' price' : ''}` }, v.big, v.small ? h('small', { text: ` ${v.small}` }) : null,
+    r.value_type === 'price' ? h('s', { class: 'old', text: money(r.price_old) }) : null);
+}
+const todayCairo = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo' }).format(new Date());
+export function offerLive(r) {
+  const t = todayCairo();
+  return r.is_active !== false && (!r.starts_on || r.starts_on <= t) && (!r.ends_on || r.ends_on >= t);
 }
 export function fmtTime(t) {
   const [hh, mm] = String(t || '').split(':').map(Number);
@@ -714,31 +740,37 @@ export function offerWhen(r) {
   if (r.days?.length && r.days.length < 7) { const n = dayNames(true); parts.push(r.days.map((d) => n[d]).join(', ')); }
   return parts.join(' · ');
 }
+const OFFER_COLS = 'id,kind,title,percent,start_time,end_time,days,sort_order,is_active';
 export async function loadOffers(providerId) {
-  const { data, error } = await sb.from('discount_rules').select('id,kind,title,percent,start_time,end_time,days,sort_order,is_active')
-    .eq('provider_id', providerId).eq('is_active', true).order('sort_order').order('percent', { ascending: false }).limit(100);
+  const q = (cols) => sb.from('discount_rules').select(cols)
+    .eq('provider_id', providerId).eq('is_active', true).order('sort_order').order('percent', { ascending: false, nullsFirst: false }).limit(100);
+  let { data, error } = await q(`${OFFER_COLS},value_type,deal_text,price_new,price_old,starts_on,ends_on`);
+  if (error && /value_type|deal_text|price_|starts_on|ends_on/.test(error.message || '')) ({ data, error } = await q(OFFER_COLS));   // update 015 not applied yet
   if (error) console.warn('Offers unavailable:', error.message);   // update 012 not applied yet
-  return data || [];
+  return (data || []).filter(offerLive);
 }
 // All of a partner's discounts as a list (partner page, partner portal)
 export function offersList(p, rules) {
   const rows = [];
-  const row = (percent, title, sub, cls = '') => h('div', { class: `offer-row ${cls}` },
-    h('span', { class: 'offer-pct', text: `${pct(percent)}%` }),
-    h('div', { class: 'grow' }, h('b', { text: title }), sub ? h('div', { class: 'small muted', text: sub }) : null));
-  const first = rules.find((r) => r.kind === 'first');
+  const row = (r, title, sub, cls = '') => {
+    const v = offerValue(r);
+    const lines = [sub, v.sub, r.ends_on ? S('offer_until').replace('{date}', fmtDay(r.ends_on)) : ''].filter(Boolean).join(' · ');
+    return h('div', { class: `offer-row ${cls}` }, offerValueEl(r),
+      h('div', { class: 'grow' }, h('b', { text: title }), lines ? h('div', { class: 'small muted', text: lines }) : null));
+  };
+  const first = rules.filter((r) => r.kind === 'first');
   const times = rules.filter((r) => r.kind === 'time');
   const services = rules.filter((r) => r.kind === 'service');
-  if (first) rows.push(row(first.percent, first.title || S('offer_first'), S('offer_first_sub'), 'hot'));
-  for (const r of times) rows.push(row(r.percent, r.title || S('offer_time'), offerWhen(r), 'hot'));
+  for (const r of first) rows.push(row(r, r.title || S('offer_first'), S('offer_first_sub'), 'hot'));
+  for (const r of times) rows.push(row(r, r.title || S('offer_time'), offerWhen(r), 'hot'));
   if (Number(p.discount_percent) > 0) {
-    rows.push(row(p.discount_percent, S('offer_standard'), first || times.length ? S('offer_standard_rest') : S('offer_standard_sub')));
+    rows.push(row({ value_type: 'percent', percent: p.discount_percent }, S('offer_standard'), first.length || times.length ? S('offer_standard_rest') : S('offer_standard_sub')));
   }
   const box = h('div', { class: 'offers' });
   if (rows.length) box.append(h('div', { class: 'offer-list' }, rows));
   if (services.length) {
     box.append(h('div', { class: 'offer-svc-title' }, h('b', { text: S('offer_services') })),
-      h('div', { class: 'offer-list svc' }, services.map((r) => row(r.percent, r.title, ''))));
+      h('div', { class: 'offer-list svc' }, services.map((r) => row(r, r.title, ''))));
   }
   return box;
 }

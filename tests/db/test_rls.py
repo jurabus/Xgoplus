@@ -1056,6 +1056,53 @@ def main():
     check("old wrapper still works (manual path)", ok(None, "select to_regprocedure('public.submit_membership_request(uuid,text,text)') is not null")[0][0])
     check("schema 014", ok(G, "select public.schema_status()->>'m014'")[0][0] == "true")
 
+    # ------------------------------------------------------------ 015: offer types (deal text / special price) + dates
+    pp = ok(A, "select public.admin_create_provider('perfume1', 'Passw0rd!', 'Oud House', 0, '')")[0][0]
+    ppu = ok(None, "select user_id from public.providers where id=%s", (pp,))[0][0]
+    ok(A, "insert into public.discount_rules (provider_id, kind, title, value_type, deal_text, sort_order) values (%s, 'service', 'Perfume mixing', 'deal', 'Buy 2 <b>Get 1</b>', 1)", (pp,))
+    dl = ok(G, "select max_percent, offer_label from public.providers where id=%s", (pp,))[0]
+    check("deal-only partner: card label (sanitized)", float(dl[0]) == 0 and dl[1].startswith("Buy 2") and "<" not in dl[1], str(dl))
+    ok(A, "insert into public.discount_rules (provider_id, kind, title, value_type, price_new, price_old, sort_order) values (%s, 'service', 'Niche perfumes', 'price', 950, 1200, 2)", (pp,))
+    ok(A, "insert into public.discount_rules (provider_id, kind, title, value_type, percent, sort_order, ends_on) values (%s, 'service', 'Incense & burners', 'percent', 20, 3, (now() at time zone 'Africa/Cairo')::date + 5)", (pp,))
+    mp = ok(G, "select max_percent, offer_label from public.providers where id=%s", (pp,))[0]
+    check("special price counts as its saving (950/1200 = 20.8%); label off once there is a %", float(mp[0]) == 20.8 and mp[1] is None, str(mp))
+    denied("price must be lower than before", A, "insert into public.discount_rules (provider_id, kind, title, value_type, price_new, price_old) values (%s, 'service', 'x', 'price', 1200, 950)", (pp,))
+    denied("deal needs text", A, "insert into public.discount_rules (provider_id, kind, title, value_type) values (%s, 'service', 'x', 'deal')", (pp,))
+    denied("percent type needs a %", A, "insert into public.discount_rules (provider_id, kind, title, value_type) values (%s, 'service', 'x', 'percent')", (pp,))
+    denied("end before start", A, "insert into public.discount_rules (provider_id, kind, title, value_type, percent, starts_on, ends_on) values (%s, 'service', 'x', 'percent', 5, '2026-12-10', '2026-12-01')", (pp,))
+    denied("partner can't add typed offers", ppu, "insert into public.discount_rules (provider_id, kind, title, value_type, deal_text) values (%s, 'service', 'x', 'deal', 'free')", (pp,))
+    # future + expired offers are ignored
+    ok(A, "insert into public.discount_rules (provider_id, kind, title, value_type, percent, starts_on) values (%s, 'service', 'Soon', 'percent', 60, (now() at time zone 'Africa/Cairo')::date + 2)", (pp,))
+    ok(A, "insert into public.discount_rules (provider_id, kind, title, value_type, percent, ends_on) values (%s, 'service', 'Old', 'percent', 70, (now() at time zone 'Africa/Cairo')::date - 1)", (pp,))
+    check("future/expired offers don't count", float(ok(G, "select max_percent from public.providers where id=%s", (pp,))[0][0]) == 20.8)
+    # time-window deal and first-visit special price are listed at checkout when they apply
+    now_t = "(now() at time zone 'Africa/Cairo')::time"
+    ok(A, f"insert into public.discount_rules (provider_id, kind, title, value_type, deal_text, start_time, end_time) values (%s, 'time', 'Happy hour', 'deal', 'Free sample', {now_t} - interval '1 hour', {now_t} + interval '1 hour')", (pp,))
+    ok(A, f"insert into public.discount_rules (provider_id, kind, title, value_type, deal_text, start_time, end_time) values (%s, 'time', 'Later', 'deal', 'Gift box', {now_t} + interval '2 hours', {now_t} + interval '3 hours')", (pp,))
+    ok(A, "insert into public.discount_rules (provider_id, kind, title, value_type, price_new, price_old) values (%s, 'first', 'Welcome', 'price', 500, 800)", (pp,))
+    tok = ok(c1, "select public.get_member_qr()")[0][0]["token"]
+    r = ok(ppu, "select public.verify_member_qr(%s)", (tok,))[0][0]
+    check("scan: no % at all -> 0", r["status"] == "active" and float(r["discount_percent"]) == 0 and r["discount_kind"] == "standard", str(r))
+    sv = [(x["title"], x["value_type"]) for x in r["services"]]
+    check("scan lists live services of every type", sv == [("Perfume mixing", "deal"), ("Niche perfumes", "price"), ("Incense & burners", "percent")], str(sv))
+    ex = sorted((x["title"], x["kind"]) for x in r["extras"])
+    check("scan lists deals that apply now", ex == [("Happy hour", "time"), ("Welcome", "first")], str(ex))
+    check("special price fields", [x for x in r["services"] if x["value_type"] == "price"][0]["price_old"] == 1200)
+    # expiry is picked up without edits (hourly refresh)
+    ok(None, "update public.discount_rules set ends_on = (now() at time zone 'Africa/Cairo')::date - 1 where provider_id=%s and title='Niche perfumes'", (pp,))
+    ok(None, "update public.providers set max_percent = 20.8 where id=%s", (pp,))   # pretend it's stale
+    ok(None, "delete from private.job_runs")
+    ok(G, "select public.refresh_offers()")
+    check("expired special price no longer counts (first-visit price 500/800 = 37.5% is now best)", float(ok(G, "select max_percent from public.providers where id=%s", (pp,))[0][0]) == 37.5)
+    ok(None, "update public.providers set max_percent = 1 where id=%s", (pp,))
+    ok(G, "select public.refresh_offers()")
+    check("refresh throttled to hourly", float(ok(G, "select max_percent from public.providers where id=%s", (pp,))[0][0]) == 1)
+    ok(None, "delete from private.job_runs"); ok(G, "select public.refresh_offers()")
+    hf = ok(G, "select public.home_feed(null, 50, 5, 10)")[0][0]
+    check("home feed carries offer_label field", all("offer_label" in t for t in hf["top"]))
+    check("search returns offer_label", ok(G, "select count(*) from public.search_providers('oud', null, 20, 0, null, null) where offer_label is null")[0][0] == 1)
+    check("schema 015", ok(G, "select public.schema_status()->>'m015'")[0][0] == "true")
+
     # ------------------------------------------------------------ performance (~20k rows)
     t = time.time()
     ok(None, """
