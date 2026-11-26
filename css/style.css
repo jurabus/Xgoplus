@@ -6,6 +6,11 @@
 @font-face { font-family: Poppins; src: url(/fonts/poppins-latin-800-normal.woff2) format('woff2'); font-weight: 800; font-display: swap; }
 @font-face { font-family: Poppins; src: url(/fonts/poppins-latin-700-italic.woff2) format('woff2'); font-weight: 700; font-style: italic; font-display: swap; }
 @font-face { font-family: Poppins; src: url(/fonts/poppins-latin-800-italic.woff2) format('woff2'); font-weight: 800; font-style: italic; font-display: swap; }
+@font-face { font-family: Lalezar; src: url(/fonts/lalezar-latin-400-normal.woff2) format('woff2'); font-display: swap; unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD; }
+@font-face { font-family: Lalezar; src: url(/fonts/lalezar-arabic-400-normal.woff2) format('woff2'); font-display: swap; unicode-range: U+0600-06FF,U+0750-077F,U+0870-088E,U+0890-0891,U+0897-08E1,U+08E3-08FF,U+200C-200E,U+2010-2011,U+204F,U+2E41,U+FB50-FDFF,U+FE70-FE74,U+FE76-FEFC; }
+@font-face { font-family: Cairo; src: url(/fonts/cairo-arabic-400-normal.woff2) format('woff2'); font-weight: 400 500; font-display: swap; unicode-range: U+0600-06FF,U+0750-077F,U+0870-088E,U+0890-0891,U+0897-08E1,U+08E3-08FF,U+200C-200E,U+2010-2011,U+204F,U+2E41,U+FB50-FDFF,U+FE70-FE74,U+FE76-FEFC; }
+@font-face { font-family: Cairo; src: url(/fonts/cairo-arabic-700-normal.woff2) format('woff2'); font-weight: 600 700; font-display: swap; unicode-range: U+0600-06FF,U+0750-077F,U+0870-088E,U+0890-0891,U+0897-08E1,U+08E3-08FF,U+200C-200E,U+2010-2011,U+204F,U+2E41,U+FB50-FDFF,U+FE70-FE74,U+FE76-FEFC; }
+@font-face { font-family: Cairo; src: url(/fonts/cairo-arabic-800-normal.woff2) format('woff2'); font-weight: 800 900; font-display: swap; unicode-range: U+0600-06FF,U+0750-077F,U+0870-088E,U+0890-0891,U+0897-08E1,U+08E3-08FF,U+200C-200E,U+2010-2011,U+204F,U+2E41,U+FB50-FDFF,U+FE70-FE74,U+FE76-FEFC; }
 
 :root {
   --bg: #f6f4ff;
@@ -683,3 +688,37 @@ input[type=file] { max-width: 100%; font-size: 14px; }
 .signup-ref .ok { color: var(--ok); }
 .signup-ref .bad { color: var(--bad); }
 .list button.item { width: 100%; border: 0; border-bottom: 1px solid var(--line); background: #fff; text-align: start; font: inherit; color: var(--ink); cursor: pointer; }
+
+/* ---------- EN <-> AR sections ---------- */
+.is-ar, .is-ar button, .is-ar input, .is-ar .btn { font-family: Poppins, Cairo, "Noto Sans Arabic", Tahoma, sans-serif; }
+.is-ar { line-height: 1.7; }
+.is-ar h1, .is-ar h2, .is-ar b { letter-spacing: 0; }
+[dir=rtl] input[type=tel], [dir=rtl] input[type=number], [dir=rtl] .code, [dir=rtl] .code-input, [dir=rtl] .mono, [dir=rtl] .pay-value { direction: ltr; unicode-bidi: plaintext; }
+[dir=rtl] input[type=tel], [dir=rtl] input[type=number], [dir=rtl] .code-input { text-align: right; }
+.lang-toggle { border: 1.5px solid var(--brand); background: #fff; color: var(--brand); border-radius: 999px; padding: 4px 12px; font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; line-height: 1.6; flex: 0 0 auto; }
+.lang-toggle[lang=ar] { font-family: Cairo, Poppins, sans-serif; }
+.lang-toggle.on-dark { position: absolute; top: 12px; inset-inline-end: 12px; background: rgba(255, 255, 255, .16); color: #fff; border-color: rgba(255, 255, 255, .55); backdrop-filter: blur(4px); }
+.earn-hero { position: relative; padding-top: 46px; }
+.page-head { align-items: center; }
+.page-head h1 { margin: 0; }
+.earn-card .btn.sm { width: auto; }
+
+/* referral banner on top of All offers */
+.cash-banner { position: relative; overflow: hidden; border-radius: 24px; padding: 48px 20px 22px; margin: 4px 0 18px; color: #fff; text-align: center;
+  background: radial-gradient(circle at 12% 18%, rgba(255, 201, 40, .45), transparent 40%), radial-gradient(circle at 88% 85%, rgba(255, 255, 255, .18), transparent 45%),
+    linear-gradient(120deg, #2a1670, #6d28d9 45%, #8b3dff 70%, #2a1670);
+  background-size: 100% 100%, 100% 100%, 220% 220%; animation: cashShift 9s ease-in-out infinite; box-shadow: 0 16px 36px rgba(42, 22, 112, .35); }
+.cash-banner::after { content: ""; position: absolute; inset: 0; background: linear-gradient(105deg, transparent 35%, rgba(255, 255, 255, .22) 50%, transparent 65%); transform: translateX(-100%); animation: cashShine 4.5s ease-in-out infinite; pointer-events: none; }
+.cash-coins { font-size: 38px; line-height: 1; animation: cashBob 2.4s ease-in-out infinite; }
+.cash-title { font-family: Lalezar, Poppins, sans-serif; font-weight: 400; font-size: clamp(30px, 8.5vw, 46px); line-height: 1.12; margin: 8px 0 10px; color: #ffc928;
+  text-shadow: 0 3px 0 #2a1670, 0 8px 22px rgba(0, 0, 0, .35); letter-spacing: .3px; }
+.cash-text { margin: 0 auto 16px; max-width: 520px; font-size: 15.5px; font-weight: 600; opacity: .96; }
+.cash-banner .cash-cta { display: inline-flex; width: auto; background: #ffc928; color: #2a1670; font-weight: 800; padding: 12px 26px; border-radius: 999px; box-shadow: 0 6px 0 #c99400; position: relative; z-index: 1; }
+.cash-banner .lang-toggle { z-index: 2; }
+.cash-banner.is-ar .cash-title { line-height: 1.35; }
+@keyframes cashShift { 0%, 100% { background-position: 0 0, 0 0, 0% 50%; } 50% { background-position: 0 0, 0 0, 100% 50%; } }
+@keyframes cashShine { 0%, 55% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }
+@keyframes cashBob { 0%, 100% { transform: translateY(0) rotate(-6deg); } 50% { transform: translateY(-6px) rotate(6deg); } }
+@media (prefers-reduced-motion: reduce) { .cash-banner, .cash-banner::after, .cash-coins { animation: none; } }
+.is-ar .mlogo, .is-ar svg { direction: ltr; }
+.page-head { margin-bottom: 12px; }

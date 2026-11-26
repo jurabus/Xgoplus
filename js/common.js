@@ -183,6 +183,40 @@ export function S(key) {
   return v === undefined || v === null || v === '' ? DEFAULTS[key] ?? '' : v;
 }
 export function allSettings() { return settings; }
+// ---- EN <-> AR for the sections that offer a language button (offers banner, earn, membership)
+const LANG_KEY = 'xg-lang';
+export function lang() { try { return localStorage.getItem(LANG_KEY) === 'ar' ? 'ar' : 'en'; } catch { return 'en'; } }
+export function setLang(l) { try { localStorage.setItem(LANG_KEY, l === 'ar' ? 'ar' : 'en'); } catch { /* private mode */ } }
+/** Text in the chosen language: `<key>_ar` when Arabic is on and translated, else the normal text. */
+export function T(key) {
+  if (lang() === 'ar') { const v = S(`${key}_ar`); if (v) return String(v).replace(/XGo\+/g, '\u2066XGo+\u2069'); }   // keep the brand LTR inside Arabic
+  return S(key);
+}
+/** Small strings that aren't admin-editable. */
+export const L = (en, ar) => (lang() === 'ar' ? ar : en);
+export const cur = () => L('EGP', 'ج.م');
+export function langScope(el) {
+  const ar = lang() === 'ar';
+  el.setAttribute('dir', ar ? 'rtl' : 'ltr'); el.setAttribute('lang', ar ? 'ar' : 'en');
+  el.classList.toggle('is-ar', ar);
+  return el;
+}
+/** "عربي" / "English" pill; onChange re-renders the section (default: reload the page). */
+export function langToggle(onChange, extra = '') {
+  const b = h('button', { class: `lang-toggle ${extra}`.trim(), type: 'button', lang: lang() === 'ar' ? 'en' : 'ar',
+    'aria-label': lang() === 'ar' ? 'Switch to English' : 'التحويل للعربي', text: lang() === 'ar' ? 'English' : 'عربي' });
+  b.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); setLang(lang() === 'ar' ? 'en' : 'ar'); if (onChange) onChange(); else location.reload(); });
+  return b;
+}
+export function fmtDateL(iso) {
+  if (!iso) return '';
+  return new Date(iso).toLocaleDateString(lang() === 'ar' ? 'ar-EG-u-nu-latn' : undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+}
+export function fmtDateTimeL(iso) {
+  if (!iso) return '';
+  return new Date(iso).toLocaleString(lang() === 'ar' ? 'ar-EG-u-nu-latn' : undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+}
+
 export async function loadSettings({ fresh = false } = {}) {
   try {
     const cached = JSON.parse(localStorage.getItem(SETTINGS_KEY) || 'null');

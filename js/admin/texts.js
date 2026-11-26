@@ -3,6 +3,8 @@ import { sb, h, clear, errMsg, busy, toast, DEFAULTS, loadSettings, bustSettings
 import { field, input, textarea, checkbox } from './ui.js';
 
 const GROUPS = [
+  ['Arabic translations (EN ↔ AR button)', /_ar$/],
+  ['Invite & earn', /^(earn_|offers_earn|account_wallet)/],
   ['General', /^(site_title|tagline|text_direction|footer_text)/],
   ['Home hero & sections', /^(hero_|top_deals|view_all|all_categories|offers_title|membership_promo|area_)/],
   ['About & contact', /^(about_|contact_)/],

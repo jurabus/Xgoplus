@@ -1167,8 +1167,10 @@ def main():
     check("late code within 7 days", ok(F2, "select public.set_referrer(%s)", (code,))[0][0]["name"] == "Rana")
     denied("referrer set once", F2, "select public.set_referrer(%s)", (code,), contains="referrer_already_set")
     F3, _ = signup("201880000004", "Fouad", "Friend")
-    ok(None, "update public.profiles set created_at = now() - interval '8 days' where id=%s", (F3,))
-    denied("too late after 7 days", F3, "select public.set_referrer(%s)", (code,), contains="referrer_too_late")
+    ok(None, "update public.profiles set created_at = now() - interval '45 days' where id=%s", (F3,))
+    check("code can still be added after 45 days", ok(F3, "select public.my_referral_summary()->>'can_set_referrer'")[0][0] == "true")
+    code_f1 = ok(None, "select referral_code from public.profiles where id=%s", (F1,))[0][0]
+    check("late code accepted after 45 days (m019)", ok(F3, "select public.set_referrer(%s)", (code_f1,))[0][0]["name"] == "Fadi")
     # commission on the referred member's paid membership (manual approval path)
     r = start(F1, "instapay"); pr1 = proof(F1, r["request_id"])
     ok(F1, "select public.submit_payment(%s, %s)", (r["request_id"], pr1))
@@ -1177,6 +1179,18 @@ def main():
     sm = ok(R1, "select public.my_referral_summary()")[0][0]
     check("referrer credited 50% of 199 = 100 (rounded)", float(sm["balance"]) == 100 and float(sm["earned"]) == 100 and sm["paid"] == 1 and sm["joined"] == 2, str({k: sm[k] for k in ("balance", "earned", "paid", "joined")}))
     check("friends list shows initials only", sorted(f["name"] for f in sm["friends"]) == ["Fadi F.", "Farah F."], str(sm["friends"]))
+    # a friend who joined 45 days ago subscribes now -> commission still paid
+    r3 = start(F3, "instapay"); pr3 = proof(F3, r3["request_id"])
+    ok(F3, "select public.submit_payment(%s, %s)", (r3["request_id"], pr3))
+    ok(A, "select public.admin_decide_request(%s, true, 'ok')", (r3["request_id"],))
+    check("commission paid for a friend who subscribed 45 days after joining",
+          ok(F1, "select public.my_referral_summary()->>'balance'")[0][0] in ("100", "100.00"),
+          ok(F1, "select public.my_referral_summary()->>'balance'")[0][0])
+    F4, _ = signup("201880000015", "Fares", "Late")
+    r4 = start(F4, "instapay"); pr4 = proof(F4, r4["request_id"])
+    ok(F4, "select public.submit_payment(%s, %s)", (r4["request_id"], pr4))
+    ok(A, "select public.admin_decide_request(%s, true, 'ok')", (r4["request_id"],))
+    denied("code can't be added after the first paid membership", F4, "select public.set_referrer(%s)", (code,), contains="referrer_too_late")
     denied("wallet table not readable", R1, "select count(*) from public.wallet_entries")
     # commission % from settings, rejected requests earn nothing, renewals off by default
     ok(A, "update public.settings set data = data || '{\"referral_commission_pct\": 33}'")
@@ -1195,7 +1209,8 @@ def main():
     check("renewal earns nothing by default", float(ok(R1, "select public.my_referral_summary()->>'balance'")[0][0]) == 166)
     ok(A, "update public.settings set data = data || '{\"referral_commission_pct\": 50}'")
     # pay membership from the wallet
-    denied("wallet too small", F3, "select public.pay_membership_with_wallet()", contains="wallet_insufficient")
+    FE, _ = signup("201880000016", "Fady", "Empty")
+    denied("wallet too small", FE, "select public.pay_membership_with_wallet()", contains="wallet_insufficient")
     ok(A, "select public.admin_wallet_adjust(%s, 50, 'Launch bonus')", (R1,))
     denied("adjust needs a note", A, "select public.admin_wallet_adjust(%s, 5, '')", (R1,), contains="note_required")
     denied("non-admin can't adjust", R1, "select public.admin_wallet_adjust(%s, 500, 'free money')", (R1,))

@@ -1,4 +1,4 @@
-import { sb, shell, S, h, $, clear, errMsg, busy, toast, logout, localPhone, fmtDate, passwordForm, icon, moduleOn } from '../common.js';
+import { sb, shell, S, T, cur, langScope, langToggle, h, $, clear, errMsg, busy, toast, logout, localPhone, fmtDate, passwordForm, icon, moduleOn } from '../common.js';
 
 const app = $('#app');
 async function main() {
@@ -25,15 +25,21 @@ async function main() {
       toast(error ? errMsg(error) : 'Saved', error ? 'bad' : '');
     });
     const m = ctx.membership || {};
-    const earn = moduleOn('referrals') ? h('a', { class: 'card row earn-card', href: 'earn.html' },
-      h('div', { class: 'grow' }, h('b', { text: S('account_wallet') }), h('div', { class: 'small muted', text: S('earn_banner_cta') })),
-      h('span', { class: 'badge brand', text: '→' })) : null;
+    // Invite & earn card (EN <-> AR)
+    const earn = moduleOn('referrals') ? h('div', { class: 'card stack earn-card' }) : null;
+    let earnData = null;
+    const drawEarn = () => {
+      if (!earn) return;
+      const bal = earnData ? Number(earnData.balance).toLocaleString('en-US') : '…';
+      clear(langScope(earn)).append(
+        h('div', { class: 'row' }, h('b', { class: 'grow', text: T('account_wallet') }), langToggle(drawEarn)),
+        h('div', { class: 'small muted', text: earnData?.code ? T('account_wallet_text').replace('{balance}', bal).replace('{code}', earnData.code) : T('earn_banner_cta') }),
+        h('div', { class: 'row' }, h('span', { class: 'badge brand', text: `${bal} ${cur()}` }), h('div', { class: 'grow' }),
+          h('a', { class: 'btn sm', href: 'earn.html', text: T('earn_banner_cta') })));
+    };
     if (earn) {
-      sb.rpc('my_referral_summary').then(({ data }) => {
-        if (!data?.code) return;
-        earn.querySelector('.small').textContent = S('account_wallet_text').replace('{balance}', Number(data.balance).toLocaleString('en-US')).replace('{code}', data.code);
-        earn.querySelector('.badge').textContent = `${Number(data.balance).toLocaleString('en-US')} EGP`;
-      }).catch(() => {});
+      drawEarn();
+      sb.rpc('my_referral_summary').then(({ data }) => { if (data?.code) { earnData = data; drawEarn(); } }).catch(() => {});
     }
     app.append(form, earn,
       h('a', { class: 'card row', href: 'membership.html' },

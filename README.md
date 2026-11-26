@@ -74,6 +74,7 @@ Web app only (no native iOS/Android app).
 16. `migrations/016_home_all_categories.sql` — home page shows a row for every category with active partners (still max 10 per row)
 17. `migrations/017_sms_privacy.sql` — SMS data minimisation: OTP/code, debit, bill and salary SMS are never treated as payments and are stored masked only; raw bank SMS text removed after 180 days
 18. `migrations/018_referrals.sql` — Invite & earn: every member gets a referral code and a wallet; a friend who signs up with the code and buys the yearly membership credits the referrer a commission (default 50%, admin-set); wallet pays for the membership or is cashed out via InstaPay / mobile wallet (admin-set minimum, paid manually within the admin-set days)
+19. `migrations/019_referral_anytime.sql` — a friend’s referral code can be added any time before their first paid membership (no 7-day limit); the commission is paid whenever the friend subscribes
 
 `supabase/setup_all.sql` = all of the above in one file (regenerate with `tools/gen-setup-all.sh`).
 
