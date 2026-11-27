@@ -722,3 +722,5 @@ input[type=file] { max-width: 100%; font-size: 14px; }
 @media (prefers-reduced-motion: reduce) { .cash-banner, .cash-banner::after, .cash-coins { animation: none; } }
 .is-ar .mlogo, .is-ar svg { direction: ltr; }
 .page-head { margin-bottom: 12px; }
+.dialog p { white-space: pre-line; }
+.danger-zone { border: 1.5px solid var(--bad-soft, #fde2e2); }

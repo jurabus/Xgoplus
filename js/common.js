@@ -389,6 +389,9 @@ const ERRORS = {
   providers_limit_check: 'Uses per period must be between 1 and 100.',
   providers_days_check: 'Pick at least one day.',
   wallet_insufficient: 'Your wallet balance is not enough for this.',
+  phone_banned: 'This phone number can’t be used to create an account. Contact XGo+ support.',
+  cannot_delete_staff: 'Partner and admin accounts can’t be deleted here.',
+  invalid_phone: 'Enter a valid Egyptian mobile number (01XXXXXXXXX).',
   withdrawal_below_minimum: 'This is below the minimum withdrawal amount.',
   withdrawal_pending: 'You already have a withdrawal being processed.',
   withdrawal_whole_pounds: 'Enter a whole amount in pounds.',
@@ -416,6 +419,7 @@ function errMsgFriendly(m) {
   for (const k of Object.keys(ERRORS)) if (m.includes(k)) return ERRORS[k];
   if (/Invalid login credentials/i.test(m)) return S('login_error');
   if (/already registered|already exists/i.test(m)) return S('signup_exists');
+  if (/Database error saving new user/i.test(m)) return ERRORS.phone_banned;   // sign-up blocked by the database (banned number)
   if (/Failed to fetch|NetworkError|Load failed/i.test(m)) return 'Connection problem. Check your internet and try again.';
   if (/check constraint|violates/i.test(m)) return 'Some values are not valid.';
   return 'Something went wrong. Please try again.';

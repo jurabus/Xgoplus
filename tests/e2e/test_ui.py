@@ -1197,6 +1197,63 @@ def main():
         assert g.locator(".ad-name").all_text_contents() == ["City Mall Sale"]
         expect(g.locator(".explore-hint")).to_be_visible()
 
+        # ---------------- admin: delete / permanent ban by phone ----------------
+        bad = phone_ctx(browser, "badactor").new_page()
+        bad.goto(SITE + "/signup.html")
+        bad.fill("input[autocomplete=given-name]", "Bad"); bad.fill("input[autocomplete=family-name]", "Actor")
+        bad.fill("input[type=tel]", "01115550404"); bad.fill("input[type=password]", "BadPass12345")
+        bad.click("main button[type=submit]")
+        for _ in range(40):
+            if sql("select count(*) from public.profiles where phone='201115550404'") == "1": break
+            bad.wait_for_timeout(250)
+        else:
+            shot(bad, "FAIL-badactor-signup"); raise AssertionError("bad actor signup failed: " + bad.locator(".form-error").inner_text())
+        a.goto(SITE + "/admin.html#members"); a.reload()
+        a.fill("input[placeholder='Search phone or name']", "01115550404")
+        try:
+            a.click(".item:has-text('Bad Actor')", timeout=8000)
+        except Exception:
+            shot(a, "FAIL-members-search"); raise
+        sh = a.locator(".sheet")
+        sh.locator(".danger-zone textarea").fill("Fake payment screenshots")
+        sh.locator("text=Delete & ban this phone number").click()
+        expect(a.locator(".dialog p")).to_contain_text("banned")
+        shot(a, "100-admin-ban-confirm", full=False)
+        a.click(".dialog .btn:last-child")
+        a.wait_for_selector(".toast:has-text('number banned')")
+        assert sql("select count(*) from public.profiles where phone='201115550404'") == "0"
+        assert sql("select reason from public.banned_phones where phone='201115550404'") == "Fake payment screenshots"
+        nb = phone_ctx(browser, "badactor2").new_page()
+        nb.goto(SITE + "/signup.html")
+        nb.fill("input[autocomplete=given-name]", "Bad"); nb.fill("input[autocomplete=family-name]", "Again")
+        nb.fill("input[type=tel]", "01115550404"); nb.fill("input[type=password]", "BadPass12345")
+        nb.click("main button[type=submit]")
+        expect(nb.locator(".form-error")).to_contain_text("can’t be used to create an account")
+        shot(nb, "101-signup-banned", full=False)
+        # banned list: add a number, lift a ban
+        a.click("text=🚫 Banned numbers")
+        bs = a.locator(".sheet")
+        expect(bs.locator(".item:has-text('0111 555 0404'), .item:has-text('01115550404')").first).to_contain_text("Fake payment")
+        bs.locator("input[type=tel]").fill("01009998887"); bs.locator("input[placeholder=Reason]").fill("Chargeback")
+        bs.locator("button:text-is('Ban number')").click(); a.click(".dialog .btn:last-child")
+        a.wait_for_selector(".toast:has-text('Number banned')")
+        expect(bs.locator(".item")).to_have_count(2)
+        shot(a, "102-admin-banned-list", full=False)
+        bs.locator(".item:has-text('Chargeback') >> text=Lift ban").click(); a.click(".dialog .btn:last-child")
+        a.wait_for_selector(".toast:has-text('Ban lifted')")
+        expect(bs.locator(".item")).to_have_count(1)
+        assert sql("select count(*) from public.banned_phones") == "1"
+        a.keyboard.press("Escape")
+        # plain delete (number may register again); the referrer keeps the commission earned from it
+        a.goto(SITE + "/admin.html#members"); a.reload()
+        a.fill("input[placeholder='Search phone or name']", "01112226666")
+        a.click(".list .item:has-text('Karim Fathy')")
+        a.locator(".sheet >> text=Delete account").click()
+        expect(a.locator(".dialog p")).to_contain_text("can register again")
+        a.click(".dialog .btn:last-child"); a.wait_for_selector(".toast:has-text('Account deleted')")
+        assert sql("select count(*) from auth.users where email like 'u201112226666@%'") == "0"
+        assert sql("select count(*) from public.wallet_entries e join public.profiles p on p.id=e.user_id where p.phone='201112223333' and e.kind='commission'") == "1"
+
         # desktop view of home
         d = browser.new_context(viewport={"width": 1280, "height": 860}); wire(d, "desktop")
         dp = d.new_page(); dp.goto(SITE + "/"); dp.wait_for_selector(".dcard")

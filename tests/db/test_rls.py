@@ -1258,6 +1258,46 @@ def main():
     check("offer: 100 EGP per friend", float(ok(G, "select public.referral_offer()->>'commission'")[0][0]) == 100)
     check("schema 018", ok(G, "select public.schema_status()->>'m018'")[0][0] == "true")
 
+    # ------------------------------------------------------------ 020 delete / ban members
+    D1, _ = signup("201990000001", "Del", "Me")
+    D2, _ = signup("201990000002", "Ban", "Me", ref=ok(None, "select referral_code from public.profiles where id=%s", (D1,))[0][0])
+    ok(A, "select public.admin_grant_membership(%s, 30)", (D1,))
+    ok(A, "select public.admin_wallet_adjust(%s, 20, 'gift')", (D1,))
+    denied("members can't delete others", c1, "select public.admin_delete_member(%s)", (D1,))
+    denied("members can't ban numbers", c1, "select public.admin_ban_phone('01990000009')")
+    denied("banned list hidden from members", c1, "select count(*) from public.banned_phones")
+    info = ok(A, "select public.admin_member_delete_info(%s)", (D1,))[0][0]
+    check("delete info shows wallet + active membership", float(info["wallet"]) == 20 and info["active_until"] and not info["protected"], str(info))
+    check("staff flagged as protected", ok(A, "select public.admin_member_delete_info(%s)->>'protected'", (p1u,))[0][0] == "true"
+          if ok(None, "select count(*) from public.profiles where id=%s", (p1u,))[0][0] else True)
+    denied("can't delete an admin", A, "select public.admin_delete_member(%s)", (admin,), contains="not_found")
+    r = ok(A, "select public.admin_delete_member(%s, false, '')", (D1,))[0][0]
+    check("member deleted", r["deleted"] and not r["banned"] and ok(None, "select count(*) from auth.users where id=%s", (D1,))[0][0] == 0)
+    check("their data is gone", ok(None, "select (select count(*) from public.memberships where user_id=%s) + (select count(*) from public.wallet_entries where user_id=%s)", (D1, D1))[0][0] == 0)
+    check("invited friend keeps the account", ok(None, "select referred_by is null from public.profiles where id=%s", (D2,))[0][0] is True)
+    D1b, e = signup("201990000001", "Del", "Again")
+    check("deleted (not banned) number can register again", not e, str(e))
+    r = ok(A, "select public.admin_delete_member(%s, true, 'Fraud')", (D2,))[0][0]
+    check("ban deletes + records number", r["banned"] and ok(None, "select reason from public.banned_phones where phone='201990000002'")[0][0] == "Fraud")
+    _, e = signup("201990000002", "Ban", "Again")
+    check("banned number can't register", e and "phone_banned" in str(e), str(e))
+    _, e = signup("201990000002", "Ban", "Again", email="u201990000002@xgoplus.online", meta_phone="+20 199 000 0002")
+    check("banned number blocked whatever the format", e and "phone_banned" in str(e), str(e))
+    r = ok(A, "select public.admin_ban_phone('0199 000 0003', 'Spam')")[0][0]
+    check("ban a number before it registers", r["banned"] and not r["deleted"] and r["phone"] == "201990000003")
+    _, e = signup("201990000003", "Pre", "Banned")
+    check("pre-banned number can't register", e and "phone_banned" in str(e), str(e))
+    r = ok(A, "select public.admin_ban_phone('+201990000001', 'Again')")[0][0]
+    check("banning a registered number deletes that account", r["deleted"] and ok(None, "select count(*) from public.profiles where id=%s", (D1b,))[0][0] == 0)
+    denied("invalid number", A, "select public.admin_ban_phone('12345')", contains="invalid_phone")
+    lst = ok(A, "select phone, total from public.admin_list_banned('', 50, 0)")
+    check("banned list", len(lst) == 3 and lst[0][1] == 3, str(lst))
+    check("banned list search", len(ok(A, "select * from public.admin_list_banned('0199000000', 50, 0)")) == 3)
+    check("unban", ok(A, "select public.admin_unban_phone('01990000002')")[0][0] is True)
+    _, e = signup("201990000002", "Ban", "Lifted")
+    check("unbanned number can register", not e, str(e))
+    check("schema 020", ok(G, "select public.schema_status()->>'m020'")[0][0] == "true")
+
     # ------------------------------------------------------------ performance (~20k rows)
     t = time.time()
     ok(None, """
